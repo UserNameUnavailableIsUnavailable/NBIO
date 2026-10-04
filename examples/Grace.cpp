@@ -1,6 +1,6 @@
-#include <async/Async.hpp>
-#include <nbio.hpp>
-#include <runtime/Runtime.hpp>
+#include <nbio/async/Async.hpp>
+#include <nbio/nbio.hpp>
+#include <nbio/runtime/Runtime.hpp>
 #include <iostream>
 
 using namespace nbio;

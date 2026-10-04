@@ -6,13 +6,7 @@ vcpkg_check_features(
         custom-memory-pooling NBIO_ENABLE_CUSTOM_MEMORY_POOLING
 )
 
-vcpkg_from_github(
-    OUT_SOURCE_PATH NBIO_SOURCE_PATH
-    REPO UserNameUnavailableIsUnavailable/NBIO
-    REF 73bbcac6884e03640a875f9f1bdb4485f6c54951
-    SHA512 8162ae5dbd9c7e71e9a84a2f3593a092c60ad28ab8114c10002dafdece612528669781c612e7881c0ee57214ef53c05665692126c7ffbb99582f268f89eadb03
-    HEAD_REF main
-)
+set(NBIO_SOURCE_PATH "${CMAKE_CURRENT_LIST_DIR}/../..")
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${NBIO_SOURCE_PATH}"

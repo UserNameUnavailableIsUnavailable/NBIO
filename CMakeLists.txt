@@ -35,19 +35,20 @@ option(BUILD_TESTING "Build NBIO tests" ${NBIO_TESTING_DEFAULT})
 option(BUILD_BENCHMARKS "Build NBIO benchmarks" ${NBIO_BENCHMARK_DEFAULT})
 
 include(CTest)
+include(GNUInstallDirs)
 
 if((NBIO_ENABLE_IO_URING OR NBIO_ENABLE_RDMA) AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "io_uring and RDMA support are available only on Linux")
 endif()
 
-add_subdirectory(source)
+add_subdirectory(source/nbio)
 
 find_package(tl-expected CONFIG REQUIRED)
 target_link_libraries(nbio PUBLIC tl::expected)
 
 target_include_directories(nbio PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_compile_features(nbio PUBLIC cxx_std_20)
 
@@ -83,7 +84,6 @@ if(BUILD_TESTING)
     add_subdirectory(testing)
 endif()
 
-include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 set(NBIO_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/nbio")
@@ -102,9 +102,8 @@ install(TARGETS nbio EXPORT nbioTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-    INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
 )
-install(DIRECTORY include/ DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(DIRECTORY include/nbio DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 install(EXPORT nbioTargets
     FILE nbioTargets.cmake
     NAMESPACE nbio::

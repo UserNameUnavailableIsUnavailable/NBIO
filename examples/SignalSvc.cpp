@@ -1,7 +1,7 @@
-#include <async/Scheduler.hpp>
-#include <signal/SystemSignal.hpp>
-#include <core/EpollMultiplexer.hpp>
-#include <signal/SystemSignalChannel.hpp>
+#include <nbio/async/Scheduler.hpp>
+#include <nbio/signal/SystemSignal.hpp>
+#include <nbio/core/EpollMultiplexer.hpp>
+#include <nbio/signal/SystemSignalChannel.hpp>
 #include <iostream>
 #include <thread>
 

@@ -9,13 +9,13 @@
 // a writer's own chunks have to arrive in the order it wrote them.
 #include <gtest/gtest.h>
 
-#include <async/Coroutine.hpp>
-#include <fs/File.hpp>
-#include <fs/FileStream.hpp>
-#include <fs/FileStreamService.hpp>
-#include <nbio.hpp>
-#include <runtime/Runtime.hpp>
-#include <core/URingMultiplexer.hpp>
+#include <nbio/async/Coroutine.hpp>
+#include <nbio/fs/File.hpp>
+#include <nbio/fs/FileStream.hpp>
+#include <nbio/fs/FileStreamService.hpp>
+#include <nbio/nbio.hpp>
+#include <nbio/runtime/Runtime.hpp>
+#include <nbio/core/URingMultiplexer.hpp>
 #include <cstdint>
 #include <cstring>
 #include <exception>

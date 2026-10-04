@@ -7,13 +7,13 @@
 // them is answered and that the order a stream needs is kept.
 #include <gtest/gtest.h>
 
-#include <async/Coroutine.hpp>
-#include <net/Address.hpp>
-#include <net/TcpSocket.hpp>
-#include <nbio.hpp>
-#include <runtime/Runtime.hpp>
-#include <net/TcpSessionService.hpp>
-#include <core/URingMultiplexer.hpp>
+#include <nbio/async/Coroutine.hpp>
+#include <nbio/net/Address.hpp>
+#include <nbio/net/TcpSocket.hpp>
+#include <nbio/nbio.hpp>
+#include <nbio/runtime/Runtime.hpp>
+#include <nbio/net/TcpSessionService.hpp>
+#include <nbio/core/URingMultiplexer.hpp>
 #include <array>
 #include <chrono>
 #include <cstddef>

@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 
-#include <nbio.hpp>
-#include <notification/ConditionVariable.hpp>
-#include <runtime/Runtime.hpp>
-#include <runtime/Runtime.hpp>
+#include <nbio/nbio.hpp>
+#include <nbio/notification/ConditionVariable.hpp>
+#include <nbio/runtime/Runtime.hpp>
+#include <nbio/runtime/Runtime.hpp>
 #include <atomic>
 #include <chrono>
 #include <future>

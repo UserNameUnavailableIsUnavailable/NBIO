@@ -20,11 +20,13 @@ The vcpkg manifest supplies `tl-expected`; the `nbio` target links its exported
 
 ## Using NBIO from vcpkg
 
-The port in `ports/nbio` fetches a pinned GitHub commit and installs the
-`nbio::nbio` CMake target. To publish NBIO as a custom registry, keep the port
-and vcpkg version metadata (`versions/baseline.json` and
-`versions/n-/nbio.json`) in this repository. Use `vcpkg x-add-version nbio`
-after updating the port to refresh the version metadata.
+The port in `ports/nbio` builds from this local checkout and installs the
+`nbio::nbio` CMake target. This is intended for unstable development through an
+overlay port. Before publishing NBIO as a custom registry, pin the source commit
+in the port, then keep the port and vcpkg version metadata
+(`versions/baseline.json` and `versions/n-/nbio.json`) in this repository. Use
+`vcpkg x-add-version nbio` after updating the port to refresh the version
+metadata.
 
 In a consumer's `vcpkg-configuration.json`, map the package to this registry:
 

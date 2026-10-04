@@ -9,7 +9,7 @@
 // then grows.
 #include <gtest/gtest.h>
 
-#include <utility/Buffer.hpp>
+#include <nbio/utility/Buffer.hpp>
 #include <cstddef>
 #include <string>
 
