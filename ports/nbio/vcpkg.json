@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Cross-platform C++20 asynchronous I/O library",
   "homepage": "https://github.com/UserNameUnavailableIsUnavailable/NBIO",
+  "license": "MIT",
   "dependencies": [
     "tl-expected",
     {

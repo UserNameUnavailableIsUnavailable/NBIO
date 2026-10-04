@@ -20,12 +20,30 @@ The vcpkg manifest supplies `tl-expected`; the `nbio` target links its exported
 
 ## Using NBIO from vcpkg
 
-The `ports/nbio` directory is an overlay port for local development. From a
-neighboring KVStore checkout, add `../NBIO/ports` to `overlay-ports` in
-`vcpkg-configuration.json`, request the port features in `vcpkg.json`, then
-configure KVStore with its vcpkg toolchain. The port builds this checkout and
-installs the `nbio::nbio` CMake target. Before registry publication, add a
-license for the project and pin the port to a tagged GitHub release.
+The port in `ports/nbio` fetches a pinned GitHub commit and installs the
+`nbio::nbio` CMake target. To publish NBIO as a custom registry, keep the port
+and vcpkg version metadata (`versions/baseline.json` and
+`versions/n-/nbio.json`) in this repository. Use `vcpkg x-add-version nbio`
+after updating the port to refresh the version metadata.
+
+In a consumer's `vcpkg-configuration.json`, map the package to this registry:
+
+```json
+{
+	"registries": [
+		{
+			"kind": "git",
+			"repository": "https://github.com/UserNameUnavailableIsUnavailable/NBIO.git",
+			"baseline": "<commit containing the registry version files>",
+			"packages": ["nbio"]
+		}
+	]
+}
+```
+
+Keep the consumer's default Microsoft registry entry as well. Once the registry
+metadata is pushed, set `baseline` to that commit. The current license file is
+an MIT template; replace its copyright placeholders before release.
 
 Enable io_uring with `-DNBIO_ENABLE_IO_URING=ON`; this requires liburing and
 pkg-config. When using vcpkg, selecting the `io-uring` manifest feature enables

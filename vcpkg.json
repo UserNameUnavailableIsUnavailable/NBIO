@@ -1,6 +1,7 @@
 {
   "name": "nbio",
   "version": "1.0.0",
+  "license": "MIT",
   "dependencies": [
     "tl-expected"
   ],
@@ -16,6 +17,10 @@
     },
     "rdma": {
       "description": "Enable Linux RDMA support; requires system librdmacm and libibverbs development packages"
+    },
+    "custom-memory-pooling": {
+      "description": "Enable NBIO's Linux global allocation pool",
+      "supports": "linux"
     },
     "testing": {
       "description": "Build the test suite",
