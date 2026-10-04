@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 target_sources(
     nbio
-    INTERFACE
+    PRIVATE
     Address.cpp
     TcpSocket.cpp
     TcpAcceptor.cpp
@@ -22,7 +22,7 @@ if(NBIO_ENABLE_RDMA)
     pkg_check_modules(IBVERBS_PC REQUIRED IMPORTED_TARGET libibverbs)
     target_sources(
         nbio
-        INTERFACE
+        PRIVATE
         RdmaResourceManager.cpp
         RdmaConnector.cpp
         RdmaAcceptor.cpp
@@ -33,5 +33,5 @@ if(NBIO_ENABLE_RDMA)
         RdmaSendChannel.cpp
         RdmaSessionService.cpp
     )
-    target_link_libraries(nbio INTERFACE PkgConfig::RDMACM_PC PkgConfig::IBVERBS_PC)
+    target_link_libraries(nbio PUBLIC PkgConfig::RDMACM_PC PkgConfig::IBVERBS_PC)
 endif()

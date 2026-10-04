@@ -18,6 +18,15 @@ cmake --build build
 The vcpkg manifest supplies `tl-expected`; the `nbio` target links its exported
 `tl::expected` target so consumers inherit the required include path.
 
+## Using NBIO from vcpkg
+
+The `ports/nbio` directory is an overlay port for local development. From a
+neighboring KVStore checkout, add `../NBIO/ports` to `overlay-ports` in
+`vcpkg-configuration.json`, request the port features in `vcpkg.json`, then
+configure KVStore with its vcpkg toolchain. The port builds this checkout and
+installs the `nbio::nbio` CMake target. Before registry publication, add a
+license for the project and pin the port to a tagged GitHub release.
+
 Enable io_uring with `-DNBIO_ENABLE_IO_URING=ON`; this requires liburing and
 pkg-config. When using vcpkg, selecting the `io-uring` manifest feature enables
 the matching CMake option by default.

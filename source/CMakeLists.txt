@@ -1,4 +1,5 @@
-add_library(nbio INTERFACE)
+add_library(nbio)
+add_library(nbio::nbio ALIAS nbio)
 
 add_subdirectory(core)
 add_subdirectory(async)

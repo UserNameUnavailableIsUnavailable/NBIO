@@ -15,17 +15,7 @@
       ]
     },
     "rdma": {
-      "description": "Enable Linux RDMA support; requires system librdmacm and libibverbs development packages",
-      "dependencies": [
-        {
-          "platform": "linux",
-          "name": "librdmacm"
-        },
-        {
-          "platform": "linux",
-          "name": "libibverbs"
-        }
-      ]
+      "description": "Enable Linux RDMA support; requires system librdmacm and libibverbs development packages"
     },
     "testing": {
       "description": "Build the test suite",

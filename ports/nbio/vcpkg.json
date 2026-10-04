@@ -1,0 +1,36 @@
+{
+  "name": "nbio",
+  "version": "1.0.0",
+  "description": "Cross-platform C++20 asynchronous I/O library",
+  "homepage": "https://github.com/UserNameUnavailableIsUnavailable/NBIO",
+  "dependencies": [
+    "tl-expected",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "features": {
+    "io-uring": {
+      "description": "Enable the Linux io_uring multiplexer",
+      "dependencies": [
+        {
+          "name": "liburing",
+          "platform": "linux"
+        }
+      ]
+    },
+    "rdma": {
+      "description": "Enable Linux RDMA support; requires system librdmacm and libibverbs development packages",
+      "supports": "linux"
+    },
+    "custom-memory-pooling": {
+      "description": "Enable NBIO's Linux global allocation pool",
+      "supports": "linux"
+    }
+  }
+}

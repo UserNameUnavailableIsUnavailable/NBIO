@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 # runtimes live in nbio and RDMA.
 target_sources(
     nbio
-    INTERFACE
+    PRIVATE
     Scheduler.cpp
     Coroutine.cpp
 )
