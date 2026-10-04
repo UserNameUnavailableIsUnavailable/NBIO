@@ -1,0 +1,7 @@
+build/
+vcpkg_installed/
+/dependencies/tl-expected/
+.cache/
+.DS_Store
+*.log
+Thumbs.db

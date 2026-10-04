@@ -1,0 +1,11 @@
+add_library(nbio INTERFACE)
+
+add_subdirectory(core)
+add_subdirectory(async)
+add_subdirectory(runtime)
+add_subdirectory(utility)
+add_subdirectory(fs)
+add_subdirectory(net)
+add_subdirectory(notification)
+add_subdirectory(signal)
+add_subdirectory(time)

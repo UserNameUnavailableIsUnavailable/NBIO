@@ -1,0 +1,39 @@
+{
+  "name": "nbio",
+  "version": "1.0.0",
+  "dependencies": [
+    "tl-expected"
+  ],
+  "features": {
+    "io-uring": {
+      "description": "Enable the Linux io_uring multiplexer",
+      "dependencies": [
+        {
+          "platform": "linux",
+          "name": "liburing"
+        }
+      ]
+    },
+    "rdma": {
+      "description": "Enable Linux RDMA support; requires system librdmacm and libibverbs development packages",
+      "dependencies": [
+        {
+          "platform": "linux",
+          "name": "librdmacm"
+        },
+        {
+          "platform": "linux",
+          "name": "libibverbs"
+        }
+      ]
+    },
+    "testing": {
+      "description": "Build the test suite",
+      "dependencies": [ "gtest" ]
+    },
+    "benchmark": {
+      "description": "Build the benchmark suite",
+      "dependencies": [ "benchmark" ]
+    }
+  }
+}
