@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 add_executable(
-	nbio_testing
+	NBIO_testing
 	BufferTesting.cpp
 	ConditionTesting.cpp
 	FileWriteChannelTesting.cpp
@@ -11,11 +11,11 @@ add_executable(
 find_package(GTest REQUIRED)
 
 target_link_libraries(
-	nbio_testing
+	NBIO_testing
 	PRIVATE
-	nbio
+	NBIO
 	GTest::gtest_main
 )
 
 include(GoogleTest)
-gtest_discover_tests(nbio_testing)
+gtest_discover_tests(NBIO_testing)

@@ -1,20 +1,20 @@
-#include <nbio/async/Async.hpp>
-#include <nbio/nbio.hpp>
-#include <nbio/runtime/Runtime.hpp>
+#include <NBIO/Async.hpp>
+#include <NBIO/Async/Runtime.hpp>
+#include <NBIO/Signal/SystemSignalService.hpp>
 #include <iostream>
 
-using namespace nbio;
+using namespace NBIO::Async;
 
-nbio::Task<void> Grace() {
-    co_await nbio::signal::SystemSignalService{}.wait();
-    co_await nbio::time::SystemTimeService{}.sleep(std::chrono::seconds(2));
+Task<void> Grace() {
+    co_await NBIO::Signal::SystemSignalService{}.wait();
+    co_await NBIO::Time::SystemTimeService{}.sleep(std::chrono::seconds(2));
     std::cout << "Period of grace ends" << std::endl;
     exit(1);
 }
 
 int main(int argc, char* argv[]) {
-    nbio::Spawn(Grace());
-    nbio::Run([]() -> nbio::Task<void> { co_await nbio::time::SystemTimeService{}.sleep(std::chrono::seconds(10)); }());
+    Spawn(Grace());
+    Run([]() -> Task<void> { co_await NBIO::Time::SystemTimeService{}.sleep(std::chrono::seconds(10)); }());
     std::cout << "The process exited gracefully" << std::endl;
     return 0;
 }

@@ -48,33 +48,33 @@ if((NBIO_ENABLE_IO_URING OR NBIO_ENABLE_RDMA) AND NOT CMAKE_SYSTEM_NAME STREQUAL
     message(FATAL_ERROR "io_uring and RDMA support are available only on Linux")
 endif()
 
-add_subdirectory(source/nbio)
+add_subdirectory(source/NBIO)
 
 find_package(tl-expected CONFIG REQUIRED)
-target_link_libraries(nbio PUBLIC tl::expected)
+target_link_libraries(NBIO PUBLIC tl::expected)
 
-target_include_directories(nbio PUBLIC
+target_include_directories(NBIO PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_compile_features(nbio PUBLIC cxx_std_20)
+target_compile_features(NBIO PUBLIC cxx_std_20)
 
 if(NBIO_ENABLE_IO_URING)
     message(STATUS "io_uring enabled")
-    target_compile_definitions(nbio PUBLIC NBIO_ENABLE_IO_URING=1)
+    target_compile_definitions(NBIO PUBLIC NBIO_ENABLE_IO_URING=1)
 endif()
 
 if(NBIO_ENABLE_RDMA)
     message(STATUS "RDMA enabled")
-    target_compile_definitions(nbio PUBLIC NBIO_ENABLE_RDMA=1)
+    target_compile_definitions(NBIO PUBLIC NBIO_ENABLE_RDMA=1)
 endif()
 
 if(NBIO_ENABLE_CUSTOM_MEMORY_POOLING)
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(FATAL_ERROR "Custom memory pooling is currently available only on Linux")
     endif()
-    target_compile_definitions(nbio PUBLIC CUSTOM_MEMORY_POOLING=1)
-    target_link_options(nbio INTERFACE
+    target_compile_definitions(NBIO PUBLIC CUSTOM_MEMORY_POOLING=1)
+    target_link_options(NBIO INTERFACE
         "-Wl,--wrap=malloc"
         "-Wl,--wrap=calloc"
         "-Wl,--wrap=realloc"
@@ -95,31 +95,31 @@ endif()
 
 include(CMakePackageConfigHelpers)
 
-set(NBIO_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/nbio")
+set(NBIO_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/NBIO")
 configure_package_config_file(
-    cmake/nbioConfig.cmake.in
-    "${CMAKE_CURRENT_BINARY_DIR}/nbioConfig.cmake"
+    cmake/NBIOConfig.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/NBIOConfig.cmake"
     INSTALL_DESTINATION "${NBIO_INSTALL_CMAKEDIR}"
 )
 write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/nbioConfigVersion.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/NBIOConfigVersion.cmake"
     VERSION "${PROJECT_VERSION}"
     COMPATIBILITY SameMajorVersion
 )
 
-install(TARGETS nbio EXPORT nbioTargets
+install(TARGETS NBIO EXPORT NBIOTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
-install(DIRECTORY include/nbio DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-install(EXPORT nbioTargets
-    FILE nbioTargets.cmake
-    NAMESPACE nbio::
+install(DIRECTORY include/NBIO DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(EXPORT NBIOTargets
+    FILE NBIOTargets.cmake
+    NAMESPACE NBIO::
     DESTINATION "${NBIO_INSTALL_CMAKEDIR}"
 )
 install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/nbioConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/nbioConfigVersion.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/NBIOConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/NBIOConfigVersion.cmake"
     DESTINATION "${NBIO_INSTALL_CMAKEDIR}"
 )

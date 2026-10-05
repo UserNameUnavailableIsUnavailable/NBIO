@@ -1,19 +1,18 @@
-#include <nbio/async/Async.hpp>
-#include <nbio/async/Task.hpp>
-#include <nbio/utility/Buffer.hpp>
-#include <nbio/net/Address.hpp>
-#include <nbio/net/TcpSocket.hpp>
-#include <nbio/runtime/Runtime.hpp>
-#include <nbio/nbio.hpp>
-#include <nbio/runtime/Runtime.hpp>
+#include <NBIO/Async.hpp>
+#include <NBIO/Async/Task.hpp>
+#include <NBIO/Utility/Buffer.hpp>
+#include <NBIO/Net/Address.hpp>
+#include <NBIO/Net/TcpSocket.hpp>
+#include <NBIO/Net/TcpAcceptService.hpp>
+#include <NBIO/Async/Runtime.hpp>
 #include <iostream>
 #include <memory>
 
-using namespace nbio;
+using namespace NBIO;
 
-nbio::Task<void> Service() {
-    auto address = net::Address::FromV4("127.0.0.1", 8080);
-    nbio::net::TcpAcceptService acceptor{address};
+NBIO::Async::Task<void> Service() {
+    auto address = Net::Address::FromV4("127.0.0.1", 8080);
+    NBIO::Net::TcpAcceptService acceptor{address};
     while (true) {
         auto accepted = co_await acceptor.Accept();
         if (!accepted) {
@@ -26,8 +25,8 @@ nbio::Task<void> Service() {
         // the coroutine frame -- the temporary closure dies before the lazy
         // task ever runs, so anything it needs must arrive as a by-value
         // parameter (parameters are moved into the frame at call time).
-        nbio::Spawn([](std::shared_ptr<nbio::net::TcpSessionService> session) -> nbio::Task<void> {
-            auto buffer = std::make_unique<::nbio::utility::Buffer>(1024);
+        NBIO::Async::Spawn([](std::shared_ptr<NBIO::Net::TcpSessionService> session) -> NBIO::Async::Task<void> {
+            auto buffer = std::make_unique<::NBIO::Utility::Buffer>(1024);
             while (true) {
                 {
                     auto res = co_await session->Receive(buffer->writable_span());
@@ -61,6 +60,6 @@ nbio::Task<void> Service() {
     }
 }
 
-int main() { nbio::Run(Service()); }
+int main() { NBIO::Async::Run(Service()); }
 
 

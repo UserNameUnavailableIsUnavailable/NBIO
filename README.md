@@ -1,6 +1,6 @@
 # NBIO
 
-NBIO is a cross-platform C++ 20 asynchronous I/O library.
+NBIO is a cross-platform C++ 20 Asynchronous I/O library.
 
 ## Configure and build
 
@@ -15,17 +15,17 @@ cmake -S . -B build \
 cmake --build build
 ```
 
-The vcpkg manifest supplies `tl-expected`; the `nbio` target links its exported
+The vcpkg manifest supplies `tl-expected`; the `NBIO` target links its exported
 `tl::expected` target so consumers inherit the required include path.
 
 ## Using NBIO from vcpkg
 
-The port in `ports/nbio` builds from this local checkout and installs the
-`nbio::nbio` CMake target. This is intended for unstable development through an
+The port in `ports/NBIO` builds from this local checkout and installs the
+`NBIO::NBIO` CMake target. This is intended for unstable development through an
 overlay port. Before publishing NBIO as a custom registry, pin the source commit
 in the port, then keep the port and vcpkg version metadata
-(`versions/baseline.json` and `versions/n-/nbio.json`) in this repository. Use
-`vcpkg x-add-version nbio` after updating the port to refresh the version
+(`versions/baseline.json` and `versions/n-/NBIO.json`) in this repository. Use
+`vcpkg x-add-version NBIO` after updating the port to refresh the version
 metadata.
 
 In a consumer's `vcpkg-configuration.json`, map the package to this registry:
@@ -37,7 +37,7 @@ In a consumer's `vcpkg-configuration.json`, map the package to this registry:
 			"kind": "git",
 			"repository": "https://github.com/UserNameUnavailableIsUnavailable/NBIO.git",
 			"baseline": "<commit containing the registry version files>",
-			"packages": ["nbio"]
+			"packages": ["NBIO"]
 		}
 	]
 }

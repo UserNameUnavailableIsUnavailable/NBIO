@@ -1,0 +1,10 @@
+NBIO provides CMake target NBIO::NBIO:
+
+    find_package(NBIO CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE NBIO::NBIO)
+
+Optional port features:
+
+    io-uring                 Linux io_uring multiplexer
+    rdma                     Linux RDMA transports (requires system librdmacm and libibverbs development packages)
+    custom-memory-pooling    Linux global allocation pool

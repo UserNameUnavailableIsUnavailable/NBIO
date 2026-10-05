@@ -1,18 +1,17 @@
 #if defined(__linux__)
 
 #include <CLI/CLI.hpp>
-#include <nbio/utility/Byte.hpp>
-#include <nbio/utility/Expected.hpp>
-#include <nbio/net/RdmaAcceptService.hpp>
-#include <nbio/net/RdmaConnectService.hpp>
-#include <nbio/net/RdmaHeader.hpp>
-#include <nbio/net/RdmaResourceManager.hpp>
-#include <nbio/net/Address.hpp>
-#include <nbio/runtime/Runtime.hpp>
-#include <nbio/core/EpollMultiplexer.hpp>
-#include <nbio/nbio.hpp>
-#include <nbio/net/RdmaDeliverService.hpp>
-#include <nbio/core/URingMultiplexer.hpp>
+#include <NBIO/Utility/Byte.hpp>
+#include <NBIO/Utility/Expected.hpp>
+#include <NBIO/Net/RdmaAcceptService.hpp>
+#include <NBIO/Net/RdmaConnectService.hpp>
+#include <NBIO/Net/RdmaHeader.hpp>
+#include <NBIO/Net/RdmaResourceManager.hpp>
+#include <NBIO/Net/Address.hpp>
+#include <NBIO/Async/Runtime.hpp>
+#include <NBIO/Core/Types.hpp>
+#include <NBIO/Net/RdmaDeliverService.hpp>
+#include <NBIO/Core/Types.hpp>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -57,14 +56,14 @@ constexpr std::size_t kPreferredDefaultMessageBytes = 4096;
 constexpr std::size_t kDefaultMessages = 200000;
 
 void PutU64(char* out, std::uint64_t value) noexcept {
-    const auto ordered = nbio::utility::ToBigEndian(value);
+    const auto ordered = NBIO::Utility::ToBigEndian(value);
     std::memcpy(out, &ordered, sizeof(ordered));
 }
 
 std::uint64_t GetU64(const char* in) noexcept {
     std::uint64_t ordered = 0;
     std::memcpy(&ordered, in, sizeof(ordered));
-    return nbio::utility::FromBigEndian(ordered);
+    return NBIO::Utility::FromBigEndian(ordered);
 }
 
 std::array<char, kReportBytes> EncodeReport(const Report& report) noexcept {
@@ -89,12 +88,12 @@ double SecondsSince(const Clock::time_point started) noexcept {
     return std::chrono::duration<double>(Clock::now() - started).count();
 }
 
-std::unique_ptr<nbio::core::Multiplexer> MakeMultiplexer(const std::string& name) {
+std::unique_ptr<NBIO::Core::Multiplexer> MakeMultiplexer(const std::string& name) {
     if (name == "epoll") {
-        return std::make_unique<nbio::core::EpollMultiplexer>();
+        return std::make_unique<NBIO::Core::EpollMultiplexer>();
     }
     if (name == "io_uring") {
-        return std::make_unique<nbio::core::URingMultiplexer>();
+        return std::make_unique<NBIO::Core::URingMultiplexer>();
     }
     throw std::invalid_argument("--multiplexer must be 'epoll' or 'io_uring'");
 }
@@ -102,7 +101,7 @@ std::unique_ptr<nbio::core::Multiplexer> MakeMultiplexer(const std::string& name
 template <typename Body>
 void RunEngine(Body body, const std::string& multiplexer, Outcome& outcome) {
     try {
-        nbio::initialize(MakeMultiplexer(multiplexer));
+        NBIO::Runtime::initialize(MakeMultiplexer(multiplexer));
         body();
     } catch (const std::exception& error) {
         outcome.failure = error.what();
@@ -111,18 +110,18 @@ void RunEngine(Body body, const std::string& multiplexer, Outcome& outcome) {
     }
 }
 
-nbio::Task<nbio::utility::expected<std::span<char>, std::string>> ReceiveOne(nbio::net::RdmaDeliverService& service) {
+NBIO::Async::Task<NBIO::Utility::expected<std::span<char>, std::string>> ReceiveOne(NBIO::Net::RdmaDeliverService& service) {
     auto incoming = co_await service.Receive();
     if (!incoming) [[unlikely]] {
-        co_return nbio::utility::unexpected(incoming.error());
+        co_return NBIO::Utility::unexpected(incoming.error());
     }
-    if (incoming->state == nbio::net::RdmaPayloadState::kEnded) [[unlikely]] {
-        co_return nbio::utility::unexpected(std::string{"the link ended"});
+    if (incoming->state == NBIO::Net::RdmaPayloadState::kEnded) [[unlikely]] {
+        co_return NBIO::Utility::unexpected(std::string{"the link ended"});
     }
     co_return incoming->payload;
 }
 
-nbio::Task<void> ServerBenchmark(nbio::net::RdmaAcceptService& acceptor, nbio::net::RdmaDeliverService::Layout layout,
+NBIO::Async::Task<void> ServerBenchmark(NBIO::Net::RdmaAcceptService& acceptor, NBIO::Net::RdmaDeliverService::Layout layout,
                                  Outcome& outcome) {
     auto admitted = co_await acceptor.Accept();
     if (!admitted) [[unlikely]] {
@@ -130,7 +129,7 @@ nbio::Task<void> ServerBenchmark(nbio::net::RdmaAcceptService& acceptor, nbio::n
         co_return;
     }
 
-    auto service = std::make_shared<nbio::net::RdmaDeliverService>(*admitted, layout);
+    auto service = std::make_shared<NBIO::Net::RdmaDeliverService>(*admitted, layout);
     if (auto ready = co_await service->handshake(); !ready) [[unlikely]]
     {
         outcome.failure = "handshake failed: " + ready.error();
@@ -197,9 +196,9 @@ nbio::Task<void> ServerBenchmark(nbio::net::RdmaAcceptService& acceptor, nbio::n
     co_return;
 }
 
-nbio::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector, const nbio::net::Address* source,
-                                 const nbio::net::Address& peer,
-                                 nbio::net::RdmaDeliverService::Layout layout, std::size_t message_bytes,
+NBIO::Async::Task<void> ClientBenchmark(NBIO::Net::RdmaConnectService& connector, const NBIO::Net::Address* source,
+                                 const NBIO::Net::Address& peer,
+                                 NBIO::Net::RdmaDeliverService::Layout layout, std::size_t message_bytes,
                                  std::size_t messages, Outcome& outcome) {
     auto connected = source != nullptr ? co_await connector.Connect(*source, peer) : co_await connector.Connect(peer);
     if (!connected) [[unlikely]] {
@@ -207,7 +206,7 @@ nbio::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector, const
         co_return;
     }
 
-    auto service = std::make_shared<nbio::net::RdmaDeliverService>(*connected, layout);
+    auto service = std::make_shared<NBIO::Net::RdmaDeliverService>(*connected, layout);
     if (auto ready = co_await service->handshake(); !ready) [[unlikely]]
     {
         outcome.failure = "handshake failed: " + ready.error();
@@ -321,15 +320,15 @@ int main(int argc, char* argv[]) {
         return application.exit(error);
     }
 
-    nbio::net::RdmaResourceManager resources(device);
+    NBIO::Net::RdmaResourceManager resources(device);
     const auto receive_chunk = resources.receive_memory().chunk_size();
     if (receive_chunk == 0) [[unlikely]] {
         std::printf("receive chunk size is zero\n");
         return 1;
     }
 
-    const nbio::net::RdmaDeliverService::Layout layout{.chunk_size = receive_chunk,
-                                                  .chunk_count = nbio::net::RdmaConnector::kReceiveChunks};
+    const NBIO::Net::RdmaDeliverService::Layout layout{.chunk_size = receive_chunk,
+                                                  .chunk_count = NBIO::Net::RdmaConnector::kReceiveChunks};
     const auto default_message_bytes =
         std::min<std::size_t>(kPreferredDefaultMessageBytes, static_cast<std::size_t>(layout.payload_size()));
     if (message_bytes_option->count() == 0) {
@@ -345,7 +344,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const auto peer = nbio::net::Address::FromV4(ip, port);
+    const auto peer = NBIO::Net::Address::FromV4(ip, port);
     std::printf(
         "mode=%s ip=%s local_ip=%s port=%u device=%s message_bytes=%zu messages=%zu window=%llu multiplexer=%s\n",
         mode.c_str(), ip.c_str(), local_ip.empty() ? "<auto>" : local_ip.c_str(), static_cast<unsigned>(port),
@@ -356,19 +355,19 @@ int main(int argc, char* argv[]) {
     if (mode == "server") {
         RunEngine(
             [&] {
-                nbio::net::RdmaAcceptService acceptor(resources, peer);
-                nbio::Run(ServerBenchmark(acceptor, layout, outcome));
+                NBIO::Net::RdmaAcceptService acceptor(resources, peer);
+                NBIO::Async::Run(ServerBenchmark(acceptor, layout, outcome));
             },
             multiplexer, outcome);
     } else {
         RunEngine(
             [&] {
-                nbio::net::RdmaConnectService connector(resources);
+                NBIO::Net::RdmaConnectService connector(resources);
                 if (local_ip.empty()) {
-                    nbio::Run(ClientBenchmark(connector, nullptr, peer, layout, message_bytes, messages, outcome));
+                    NBIO::Async::Run(ClientBenchmark(connector, nullptr, peer, layout, message_bytes, messages, outcome));
                 } else {
-                    const auto source = nbio::net::Address::FromV4(local_ip, 0);
-                    nbio::Run(ClientBenchmark(connector, &source, peer, layout, message_bytes, messages, outcome));
+                    const auto source = NBIO::Net::Address::FromV4(local_ip, 0);
+                    NBIO::Async::Run(ClientBenchmark(connector, &source, peer, layout, message_bytes, messages, outcome));
                 }
             },
             multiplexer, outcome);
