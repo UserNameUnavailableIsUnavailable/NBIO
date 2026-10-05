@@ -13,7 +13,7 @@ add_executable(
 target_link_libraries(
     RdmaFileBenchmark
     PRIVATE
-    NBIO
+    nbio
     CLI11::CLI11
 )
 
@@ -27,7 +27,7 @@ add_executable(
 target_link_libraries(
     RdmaDeliverTest
     PRIVATE
-    NBIO
+    nbio
     CLI11::CLI11
 )
 
@@ -39,6 +39,6 @@ add_executable(
 target_link_libraries(
     RdmaDeliverBenchmark
     PRIVATE
-    NBIO
+    nbio
     CLI11::CLI11
 )

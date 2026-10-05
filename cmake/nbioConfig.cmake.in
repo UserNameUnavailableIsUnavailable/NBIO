@@ -1,0 +1,19 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(tl-expected CONFIG REQUIRED)
+
+if(@NBIO_ENABLE_IO_URING@ OR @NBIO_ENABLE_RDMA@)
+    find_dependency(PkgConfig REQUIRED)
+endif()
+
+if(@NBIO_ENABLE_IO_URING@)
+    pkg_check_modules(URING_PC REQUIRED IMPORTED_TARGET liburing)
+endif()
+
+if(@NBIO_ENABLE_RDMA@)
+    pkg_check_modules(RDMACM_PC REQUIRED IMPORTED_TARGET librdmacm)
+    pkg_check_modules(IBVERBS_PC REQUIRED IMPORTED_TARGET libibverbs)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/nbioTargets.cmake")

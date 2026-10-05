@@ -13,7 +13,7 @@ find_package(GTest REQUIRED)
 target_link_libraries(
 	NBIO_testing
 	PRIVATE
-	NBIO
+	nbio
 	GTest::gtest_main
 )
 

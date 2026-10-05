@@ -1,17 +1,17 @@
-#include <NBIO/Async.hpp>
-#include <NBIO/Async/Task.hpp>
-#include <NBIO/Net/Address.hpp>
-#include <NBIO/Net/RdmaAcceptService.hpp>
-#include <NBIO/Net/RdmaResourceManager.hpp>
+#include <nbio/async.hpp>
+#include <nbio/async/Task.hpp>
+#include <nbio/net/Address.hpp>
+#include <nbio/net/RdmaAcceptService.hpp>
+#include <nbio/net/RdmaResourceManager.hpp>
 
 #include <iostream>
 #include <string_view>
 #include <utility>
 
-NBIO::Async::Task<void> RunServer() {
-    NBIO::Net::RdmaResourceManager resources{"siw0"};
-    const auto address = NBIO::Net::Address::FromV4("192.168.0.101", 6666);
-    NBIO::Net::RdmaAcceptService acceptor{resources, address};
+nbio::async::Task<void> RunServer() {
+    nbio::net::RdmaResourceManager resources{"siw0"};
+    const auto address = nbio::net::Address::FromV4("192.168.0.101", 6666);
+    nbio::net::RdmaAcceptService acceptor{resources, address};
     std::cout << "Listening on RDMA " << address.ip() << ':' << address.port() << '\n';
 
     auto accepted = co_await acceptor.Accept();
@@ -25,7 +25,7 @@ NBIO::Async::Task<void> RunServer() {
         std::cerr << "Failed to receive RDMA data: " << received.error().message() << '\n';
         co_return;
     }
-    if (received->state != NBIO::Net::RdmaReceiveState::kData) {
+    if (received->state != nbio::net::RdmaReceiveState::kData) {
         std::cerr << "RDMA peer closed before sending data\n";
         co_return;
     }
@@ -36,4 +36,4 @@ NBIO::Async::Task<void> RunServer() {
     }
 }
 
-int main() { NBIO::Async::Run(RunServer()); }
+int main() { nbio::async::Run(RunServer()); }

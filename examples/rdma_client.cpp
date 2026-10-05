@@ -1,18 +1,18 @@
-#include <NBIO/Async.hpp>
-#include <NBIO/Async/Task.hpp>
-#include <NBIO/Net/Address.hpp>
-#include <NBIO/Net/RdmaConnectService.hpp>
-#include <NBIO/Net/RdmaResourceManager.hpp>
+#include <nbio/async.hpp>
+#include <nbio/async/Task.hpp>
+#include <nbio/net/Address.hpp>
+#include <nbio/net/RdmaConnectService.hpp>
+#include <nbio/net/RdmaResourceManager.hpp>
 
 #include <cstring>
 #include <iostream>
 #include <string_view>
 #include <utility>
 
-NBIO::Async::Task<void> RunClient() {
-    NBIO::Net::RdmaResourceManager resources{"siw0"};
-    const auto address = NBIO::Net::Address::FromV4("192.168.0.101", 6666);
-    NBIO::Net::RdmaConnectService connector{resources};
+nbio::async::Task<void> RunClient() {
+    nbio::net::RdmaResourceManager resources{"siw0"};
+    const auto address = nbio::net::Address::FromV4("192.168.0.101", 6666);
+    nbio::net::RdmaConnectService connector{resources};
     auto connected = co_await connector.Connect(address);
     if (!connected) {
         std::cerr << "Failed to connect to RDMA address: " << connected.error().message() << '\n';
@@ -24,7 +24,7 @@ NBIO::Async::Task<void> RunClient() {
         std::cerr << "Failed to acquire RDMA send buffer: " << acquired.error().message() << '\n';
         co_return;
     }
-    if (acquired->state != NBIO::Net::RdmaBufferState::kAvailable) {
+    if (acquired->state != nbio::net::RdmaBufferState::kAvailable) {
         std::cerr << "No RDMA send buffer is available\n";
         co_return;
     }
@@ -41,4 +41,4 @@ NBIO::Async::Task<void> RunClient() {
     std::cout << "Sent: " << message << '\n';
 }
 
-int main() { NBIO::Async::Run(RunClient()); }
+int main() { nbio::async::Run(RunClient()); }

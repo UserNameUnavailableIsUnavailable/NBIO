@@ -35,18 +35,18 @@
 #include <unistd.h>
 
 #include <CLI/CLI.hpp>
-#include <NBIO/Utility/Bitmap.hpp>
-#include <NBIO/Utility/Byte.hpp>
-#include <NBIO/Utility/Expected.hpp>
-#include <NBIO/Net/RdmaAcceptService.hpp>
-#include <NBIO/Net/RdmaConnector.hpp>
-#include <NBIO/Net/RdmaConnectService.hpp>
-#include <NBIO/Net/RdmaResourceManager.hpp>
-#include <NBIO/Net/Address.hpp>
-#include <NBIO/Async/Runtime.hpp>
-#include <NBIO/Core/Types.hpp>
-#include <NBIO/Net/RdmaSessionService.hpp>
-#include <NBIO/Core/Types.hpp>
+#include <nbio/utility/Bitmap.hpp>
+#include <nbio/utility/Byte.hpp>
+#include <nbio/utility/Expected.hpp>
+#include <nbio/net/RdmaAcceptService.hpp>
+#include <nbio/net/RdmaConnector.hpp>
+#include <nbio/net/RdmaConnectService.hpp>
+#include <nbio/net/RdmaResourceManager.hpp>
+#include <nbio/net/Address.hpp>
+#include <nbio/async/Runtime.hpp>
+#include <nbio/core/Types.hpp>
+#include <nbio/net/RdmaSessionService.hpp>
+#include <nbio/core/Types.hpp>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -80,7 +80,7 @@ constexpr std::size_t kDefaultPayload = 1U << 30;
 // per receive chunk and the device needs one for every message in flight, so this
 // is not a tuning knob: it is the receiver's own depth, and the number the window
 // has to stay inside to keep the connection alive.
-constexpr std::size_t kWindow = NBIO::Net::RdmaConnector::kReceiveChunks;
+constexpr std::size_t kWindow = nbio::net::RdmaConnector::kReceiveChunks;
 
 // What one end of a transfer ended up with. `ok` is false for a transfer that did
 // not finish, and `failure` then says why -- the one thing either end reports.
@@ -121,14 +121,14 @@ struct Report {
 // width the buffer already says: a report is three quad words, and a quad word
 // that is read on a little-endian machine is read the other way round.
 void PutU64(char* out, std::uint64_t value) noexcept {
-    const auto ordered = NBIO::Utility::ToBigEndian(value);
+    const auto ordered = nbio::utility::ToBigEndian(value);
     std::memcpy(out, &ordered, sizeof(ordered));
 }
 
 std::uint64_t GetU64(const char* in) noexcept {
     std::uint64_t ordered = 0;
     std::memcpy(&ordered, in, sizeof(ordered));
-    return NBIO::Utility::FromBigEndian(ordered);
+    return nbio::utility::FromBigEndian(ordered);
 }
 
 double Seconds(Clock::time_point from, Clock::time_point to) noexcept {
@@ -157,54 +157,54 @@ std::array<char, kReportBytes> Encode(const Report& report) noexcept {
 // to be a completion for this direction: a wake-up, not an end to anything -- the
 // end of a link arrives as an error, because a link that has gone can never
 // satisfy the wait.
-NBIO::Async::Task<NBIO::Utility::expected<std::span<char>, std::string>> NextMessage(NBIO::Net::RdmaSessionService& session) {
+nbio::async::Task<nbio::utility::expected<std::span<char>, std::string>> NextMessage(nbio::net::RdmaSessionService& session) {
     while (true) {
         auto incoming = co_await session.Receive();
         if (!incoming) [[unlikely]] {
-            co_return NBIO::Utility::unexpected(incoming.error().message());
+            co_return nbio::utility::unexpected(incoming.error().message());
         }
-        if (incoming->state == NBIO::Net::RdmaReceiveState::kData) {
+        if (incoming->state == nbio::net::RdmaReceiveState::kData) {
             co_return incoming->data;
         }
-        if (incoming->state == NBIO::Net::RdmaReceiveState::kPeerClosed) {
-            co_return NBIO::Utility::unexpected(std::string{"the link was closed"});
+        if (incoming->state == nbio::net::RdmaReceiveState::kPeerClosed) {
+            co_return nbio::utility::unexpected(std::string{"the link was closed"});
         }
     }
 }
 
 // One message off the send pool, waited for: the control plane carries a handful
 // of messages per transfer, and each one is what the other end is waiting on.
-NBIO::Async::Task<NBIO::Utility::expected<void, std::string>> SendReport(NBIO::Net::RdmaSessionService& session, const Report& report) {
+nbio::async::Task<nbio::utility::expected<void, std::string>> SendReport(nbio::net::RdmaSessionService& session, const Report& report) {
     const auto message = Encode(report);
     while (true) {
         auto acquired = session.send_channel().Acquire();
         if (!acquired) [[unlikely]] {
-            co_return NBIO::Utility::unexpected(acquired.error().message());
+            co_return nbio::utility::unexpected(acquired.error().message());
         }
-        if (acquired->state == NBIO::Net::RdmaBufferState::kWouldBlock) [[unlikely]] {
+        if (acquired->state == nbio::net::RdmaBufferState::kWouldBlock) [[unlikely]] {
             // Every chunk is in flight: one has to come back before this can go
             // out. Waiting for exactly one is what keeps this from waiting for the
             // payload as well.
             const auto reaped = co_await session.PollSend(1);
             if (!reaped) [[unlikely]] {
-                co_return NBIO::Utility::unexpected(reaped.error().message());
+                co_return nbio::utility::unexpected(reaped.error().message());
             }
             if (*reaped == 0 && session.send_channel().outstanding() != 0) [[unlikely]] {
-                co_return NBIO::Utility::unexpected(std::string{"the link stopped reporting completions"});
+                co_return nbio::utility::unexpected(std::string{"the link stopped reporting completions"});
             }
             continue;
         }
 
         const std::span<char> chunk = acquired->buffer;
         if (chunk.size() < message.size()) [[unlikely]] {
-            co_return NBIO::Utility::unexpected(std::string{"a chunk cannot carry a report"});
+            co_return nbio::utility::unexpected(std::string{"a chunk cannot carry a report"});
         }
         std::memcpy(chunk.data(), message.data(), message.size());
         const auto posted = session.Send(chunk, message.size());
         if (!posted) [[unlikely]] {
-            co_return NBIO::Utility::unexpected(posted.error().message());
+            co_return nbio::utility::unexpected(posted.error().message());
         }
-        co_return NBIO::Utility::expected<void, std::string>{};
+        co_return nbio::utility::expected<void, std::string>{};
     }
 }
 
@@ -212,17 +212,17 @@ NBIO::Async::Task<NBIO::Utility::expected<void, std::string>> SendReport(NBIO::N
 // stands. Reading them all in one pass is what keeps a window that has opened up
 // from being used one message per wake-up, which would make the transfer a round
 // trip per message rather than a stream.
-NBIO::Async::Task<NBIO::Utility::expected<void, std::string>> HarvestCredits(NBIO::Net::RdmaSessionService& session, std::size_t& credited) {
+nbio::async::Task<nbio::utility::expected<void, std::string>> HarvestCredits(nbio::net::RdmaSessionService& session, std::size_t& credited) {
     while (true) {
         auto incoming = co_await session.TryReceive();
         if (!incoming) [[unlikely]] {
-            co_return NBIO::Utility::unexpected(incoming.error().message());
+            co_return nbio::utility::unexpected(incoming.error().message());
         }
-        if (incoming->state == NBIO::Net::RdmaReceiveState::kWouldBlock) {
-            co_return NBIO::Utility::expected<void, std::string>{};
+        if (incoming->state == nbio::net::RdmaReceiveState::kWouldBlock) {
+            co_return nbio::utility::expected<void, std::string>{};
         }
-        if (incoming->state == NBIO::Net::RdmaReceiveState::kPeerClosed) [[unlikely]] {
-            co_return NBIO::Utility::unexpected(std::string{"the link was closed"});
+        if (incoming->state == nbio::net::RdmaReceiveState::kPeerClosed) [[unlikely]] {
+            co_return nbio::utility::unexpected(std::string{"the link was closed"});
         }
 
         const std::span<char> message = incoming->data;
@@ -233,14 +233,14 @@ NBIO::Async::Task<NBIO::Utility::expected<void, std::string>> HarvestCredits(NBI
         (void)session.Release(message);
 
         if (!report || report->kind != kCredit) [[unlikely]] {
-            co_return NBIO::Utility::unexpected("the receiver sent a report of " + std::to_string(size) +
+            co_return nbio::utility::unexpected("the receiver sent a report of " + std::to_string(size) +
                                        " bytes that is not a credit");
         }
         if (report->value < credited) [[unlikely]] {
             // Credits count messages finished, so one that goes backwards is a
             // report about a transfer other than this one -- and acting on it
             // would open the window on a count that never happened.
-            co_return NBIO::Utility::unexpected("the receiver credited " + std::to_string(report->value) +
+            co_return nbio::utility::unexpected("the receiver credited " + std::to_string(report->value) +
                                        " messages after crediting " + std::to_string(credited));
         }
         credited = static_cast<std::size_t>(report->value);
@@ -251,22 +251,22 @@ NBIO::Async::Task<NBIO::Utility::expected<void, std::string>> HarvestCredits(NBI
 // Everything already waiting was taken in by the caller, so this is one report and
 // no more -- and it is the wait that makes this a measurement of the receiver as
 // much as of the device.
-NBIO::Async::Task<NBIO::Utility::expected<void, std::string>> WaitForCredit(NBIO::Net::RdmaSessionService& session, std::size_t& credited) {
+nbio::async::Task<nbio::utility::expected<void, std::string>> WaitForCredit(nbio::net::RdmaSessionService& session, std::size_t& credited) {
     auto incoming = co_await NextMessage(session);
     if (!incoming) [[unlikely]] {
-        co_return NBIO::Utility::unexpected(incoming.error());
+        co_return nbio::utility::unexpected(incoming.error());
     }
     const auto report = Decode(*incoming);
     (void)session.Release(*incoming);
     if (!report || report->kind != kCredit) [[unlikely]] {
-        co_return NBIO::Utility::unexpected(std::string{"the receiver stopped reporting credits"});
+        co_return nbio::utility::unexpected(std::string{"the receiver stopped reporting credits"});
     }
     if (report->value <= credited) [[unlikely]] {
-        co_return NBIO::Utility::unexpected("the receiver credited " + std::to_string(report->value) +
+        co_return nbio::utility::unexpected("the receiver credited " + std::to_string(report->value) +
                                    " messages after crediting " + std::to_string(credited));
     }
     credited = static_cast<std::size_t>(report->value);
-    co_return NBIO::Utility::expected<void, std::string>{};
+    co_return nbio::utility::expected<void, std::string>{};
 }
 
 // The sending half: announce the payload, put it on the wire as fast as the window
@@ -274,14 +274,14 @@ NBIO::Async::Task<NBIO::Utility::expected<void, std::string>> WaitForCredit(NBIO
 // ended up with. A posted send is not a sent one, so the clock stops when the last
 // completion comes back rather than when the last message is handed over --
 // otherwise this would measure how fast the loop can fill chunks.
-NBIO::Async::Task<void> Send(NBIO::Net::RdmaAcceptService& acceptor, const std::vector<char>& payload, std::size_t message,
+nbio::async::Task<void> Send(nbio::net::RdmaAcceptService& acceptor, const std::vector<char>& payload, std::size_t message,
                       Outcome& outcome, Progress& progress) {
     auto admitted = co_await acceptor.Accept();
     if (!admitted) [[unlikely]] {
         outcome.failure = "the connection was not admitted: " + admitted.error().message();
         co_return;
     }
-    NBIO::Net::RdmaSessionService& session = **admitted;
+    nbio::net::RdmaSessionService& session = **admitted;
 
     const auto messages = (payload.size() + message - 1) / message;
 
@@ -322,7 +322,7 @@ NBIO::Async::Task<void> Send(NBIO::Net::RdmaAcceptService& acceptor, const std::
             outcome.failure = "the send channel failed: " + acquired.error().message();
             co_return;
         }
-        if (acquired->state == NBIO::Net::RdmaBufferState::kWouldBlock) {
+        if (acquired->state == nbio::net::RdmaBufferState::kWouldBlock) {
             // Every chunk is in flight, so one has to be retired before another
             // message can be built. This is the sender's own limit -- the tighter
             // of the two when the window is wider -- and it is what keeps the
@@ -413,14 +413,14 @@ NBIO::Async::Task<void> Send(NBIO::Net::RdmaAcceptService& acceptor, const std::
 // own would be the same message twice. The clock runs from just after the
 // announcement to the last byte, which is the window in which the payload was on
 // the wire.
-NBIO::Async::Task<void> Receive(NBIO::Net::RdmaConnectService& connector, NBIO::Net::Address master, std::size_t chunk,
+nbio::async::Task<void> Receive(nbio::net::RdmaConnectService& connector, nbio::net::Address master, std::size_t chunk,
                          Outcome& outcome, Progress& progress) {
     auto connected = co_await connector.Connect(master);
     if (!connected) [[unlikely]] {
         outcome.failure = "the connection was not established: " + connected.error().message();
         co_return;
     }
-    NBIO::Net::RdmaSessionService& session = **connected;
+    nbio::net::RdmaSessionService& session = **connected;
 
     auto announcement = co_await NextMessage(session);
     if (!announcement) [[unlikely]] {
@@ -537,12 +537,12 @@ std::uint16_t FreePort() {
     return port;
 }
 
-std::unique_ptr<NBIO::Core::Multiplexer> MakeMultiplexer(const std::string& name) {
+std::unique_ptr<nbio::Core::Multiplexer> MakeMultiplexer(const std::string& name) {
     if (name == "epoll") {
-        return std::make_unique<NBIO::Core::EpollMultiplexer>();
+        return std::make_unique<nbio::Core::EpollMultiplexer>();
     }
     if (name == "io_uring") {
-        return std::make_unique<NBIO::Core::URingMultiplexer>();
+        return std::make_unique<nbio::Core::URingMultiplexer>();
     }
     throw std::invalid_argument("--multiplexer must be 'epoll' or 'io_uring'");
 }
@@ -554,7 +554,7 @@ std::unique_ptr<NBIO::Core::Multiplexer> MakeMultiplexer(const std::string& name
 template <typename Body>
 void RunEngine(Body body, const std::string& multiplexer, Outcome& outcome) {
     try {
-        NBIO::Runtime::initialize(MakeMultiplexer(multiplexer));
+        nbio::Runtime::initialize(MakeMultiplexer(multiplexer));
         body();
     } catch (const std::exception& error) {
         outcome.failure = error.what();
@@ -688,8 +688,8 @@ int main(int argc, char* argv[]) {
     // Two managers, one per engine. The manager is single-threaded, and each end of
     // a link is driven by an engine of its own -- one per process, as they would be
     // in two servers, which is why the two ends cannot share one.
-    NBIO::Net::RdmaResourceManager sending_resources(device);
-    NBIO::Net::RdmaResourceManager receiving_resources(device);
+    nbio::net::RdmaResourceManager sending_resources(device);
+    nbio::net::RdmaResourceManager receiving_resources(device);
 
     // The message size comes from the manager, and the receiver's chunks are what a
     // message has to fit: a bigger one would be truncated by the device rather than
@@ -714,7 +714,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const NBIO::Net::Address master = NBIO::Net::Address::FromV4(address, listening_on);
+    const nbio::net::Address master = nbio::net::Address::FromV4(address, listening_on);
 
     std::printf("%zu bytes as %zu messages of %zu bytes, window of %zu, %s:%u on %s, %s\n", payload.size(),
                 (payload.size() + message - 1) / message, message, kWindow, address.c_str(), listening_on,
@@ -733,8 +733,8 @@ int main(int argc, char* argv[]) {
     std::thread sender([&] {
         RunEngine(
             [&] {
-                NBIO::Net::RdmaAcceptService acceptor(sending_resources, master);
-                NBIO::Async::Run(Send(acceptor, payload, message, sent, progress));
+                nbio::net::RdmaAcceptService acceptor(sending_resources, master);
+                nbio::async::Run(Send(acceptor, payload, message, sent, progress));
             },
             multiplexer, sent);
         Print(sent, "sender", message);
@@ -742,8 +742,8 @@ int main(int argc, char* argv[]) {
     std::thread receiver([&] {
         RunEngine(
             [&] {
-                NBIO::Net::RdmaConnectService connector(receiving_resources);
-                NBIO::Async::Run(Receive(connector, master, receiving, taken, progress));
+                nbio::net::RdmaConnectService connector(receiving_resources);
+                nbio::async::Run(Receive(connector, master, receiving, taken, progress));
             },
             multiplexer, taken);
         Print(taken, "receiver", message);

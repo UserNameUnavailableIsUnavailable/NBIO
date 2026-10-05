@@ -8,7 +8,7 @@ function(add_example name)
     target_link_libraries(
         ${name}
         PRIVATE
-        NBIO
+        nbio
     )
 endfunction()
 

@@ -9,20 +9,20 @@
 // then grows.
 #include <gtest/gtest.h>
 
-#include <NBIO/Utility/Buffer.hpp>
+#include <nbio/utility/Buffer.hpp>
 #include <cstddef>
 #include <string>
 
 namespace {
 std::string Fill(std::size_t size, char character) { return std::string(size, character); }
 
-void Append(NBIO::Utility::Buffer& buffer, const std::string& bytes) {
+void Append(nbio::utility::Buffer& buffer, const std::string& bytes) {
     ASSERT_TRUE(buffer.write(bytes.data(), bytes.size()));
 }
 }  // namespace
 
 TEST(Buffer, WhatIsWrittenIsWhatIsRead) {
-    NBIO::Utility::Buffer buffer(64, 64);
+    nbio::utility::Buffer buffer(64, 64);
     Append(buffer, "hello");
     EXPECT_EQ(buffer.string_view(), "hello");
     EXPECT_EQ(buffer.readable_size(), 5U);
@@ -38,7 +38,7 @@ TEST(Buffer, WhatIsWrittenIsWhatIsRead) {
 // The case the whole class exists for: more arrives than the buffer was given
 // room for, and it grows instead of dropping it.
 TEST(Buffer, WritingPastWhatItHoldsGrowsTheBuffer) {
-    NBIO::Utility::Buffer buffer(8, 4096);
+    nbio::utility::Buffer buffer(8, 4096);
     const std::string bytes = "a line that is longer than the buffer";
     Append(buffer, bytes);
     EXPECT_EQ(buffer.string_view(), bytes);
@@ -49,7 +49,7 @@ TEST(Buffer, WritingPastWhatItHoldsGrowsTheBuffer) {
 // grow that copies them to the front while leaving the window where it was hands
 // the reader whatever happens to be at the old offsets -- here, nothing at all.
 TEST(Buffer, AFullBufferThatHoldsBytesGrowsAndKeepsThem) {
-    NBIO::Utility::Buffer buffer(16, 4096);
+    nbio::utility::Buffer buffer(16, 4096);
     const std::string held = Fill(16, 'h');
     Append(buffer, held);
 
@@ -67,7 +67,7 @@ TEST(Buffer, AFullBufferThatHoldsBytesGrowsAndKeepsThem) {
 // The same, standing on the ceiling: a buffer that cannot grow any further keeps
 // what it holds rather than losing it, and says that the write did not happen.
 TEST(Buffer, ABufferAtItsCeilingKeepsWhatItHolds) {
-    NBIO::Utility::Buffer buffer(16, 24);
+    nbio::utility::Buffer buffer(16, 24);
     Append(buffer, Fill(16, 'a'));
     buffer.consume(4);
     EXPECT_EQ(buffer.string_view(), Fill(12, 'a'));

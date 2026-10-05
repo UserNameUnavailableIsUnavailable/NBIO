@@ -1,22 +1,22 @@
 #include <gtest/gtest.h>
 
-#include <NBIO/Notification/ConditionVariable.hpp>
-#include <NBIO/Async/Runtime.hpp>
-#include <NBIO/Async/Runtime.hpp>
+#include <nbio/notification/ConditionVariable.hpp>
+#include <nbio/async/Runtime.hpp>
+#include <nbio/async/Runtime.hpp>
 #include <atomic>
 #include <chrono>
 #include <future>
 #include <thread>
 
 namespace {
-using NBIO::Notification::ConditionVariable;
-using NBIO::Async::Runtime;
+using nbio::notification::ConditionVariable;
+using nbio::async::Runtime;
 
 // A ConditionVariable binds the engine's notify channel on construction, so the
 // runtime has to be installed before any test body runs.
 class ConditionTesting : public ::testing::Test {};
 
-NBIO::Async::Task<void> wait_for_flag(ConditionVariable& condition, std::atomic_bool& ready,
+nbio::async::Task<void> wait_for_flag(ConditionVariable& condition, std::atomic_bool& ready,
                                            std::atomic_int& resumed, std::promise<void>* first_resume = nullptr) {
     co_await condition.wait([&] { return ready.load(std::memory_order_acquire); });
 
@@ -27,7 +27,7 @@ NBIO::Async::Task<void> wait_for_flag(ConditionVariable& condition, std::atomic_
 }
 
 // Parks forever: the predicate never holds, so the only way out is destruction.
-NBIO::Async::Task<void> Park(ConditionVariable& condition, std::atomic_int& resumed) {
+nbio::async::Task<void> Park(ConditionVariable& condition, std::atomic_int& resumed) {
     co_await condition.wait([] { return false; });
     resumed.fetch_add(1, std::memory_order_acq_rel);
 }
@@ -54,7 +54,7 @@ TEST_F(ConditionTesting, WaitsUntilPredicateTurnsTrue) {
     EXPECT_TRUE(token.IsDead());
 }
 
-TEST_F(ConditionTesting, NotifyOneWakesOneWaiterAtATime) {
+TEST_F(ConditionTesting, NotifyOneWakesOneWaiterAtAtime) {
     ConditionVariable condition;
     std::atomic_bool ready{false};
     std::atomic_int resumed{0};

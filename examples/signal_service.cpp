@@ -1,23 +1,23 @@
-#include <NBIO/Async/Scheduler.hpp>
-#include <NBIO/Signal/SystemSignal.hpp>
-#include <NBIO/Core/EpollMultiplexer.hpp>
-#include <NBIO/Signal/SystemSignalChannel.hpp>
+#include <nbio/async/Scheduler.hpp>
+#include <nbio/signal/SystemSignal.hpp>
+#include <nbio/core/EpollMultiplexer.hpp>
+#include <nbio/signal/SystemSignalChannel.hpp>
 #include <iostream>
 #include <thread>
 
-using namespace NBIO;
+using namespace nbio;
 
-// SystemSignalChannel intercepts signals.
-// The user is responsible to deal with signals.
-// This example shows how Async::wait_for_signal works.
+// SystemSignalChannel intercepts Signals.
+// The user is responsible to deal with Signals.
+// This example shows how async::wait_for_Signal works.
 
 int main(int argc, char* argv[]) {
     {
-        NBIO::Core::EpollMultiplexer mux;
-        Async::Scheduler sched([](bool) {});
-        // creating SystemSignalChannel will intercept signals
-        Signal::SystemSignal signal;
-        NBIO::Signal::SystemSignalChannel svc(signal, mux, sched);
+        nbio::Core::EpollMultiplexer mux;
+        async::Scheduler sched([](bool) {});
+        // creating SystemSignalChannel will intercept Signals
+        signal::SystemSignal Signal;
+        nbio::signal::SystemSignalChannel svc(Signal, mux, sched);
         // the process won't exit within 2 seconds
         std::this_thread::sleep_for(std::chrono::seconds(2));
         std::cout << "2s elapsed" << std::endl;
