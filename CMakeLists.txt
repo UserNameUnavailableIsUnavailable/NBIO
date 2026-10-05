@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 
+if(BUILD_TESTING AND NOT "testing" IN_LIST VCPKG_MANIFEST_FEATURES)
+    list(APPEND VCPKG_MANIFEST_FEATURES testing)
+endif()
+if(BUILD_BENCHMARKS AND NOT "benchmark" IN_LIST VCPKG_MANIFEST_FEATURES)
+    list(APPEND VCPKG_MANIFEST_FEATURES benchmark)
+endif()
+
 project(NBIO VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -53,10 +60,12 @@ target_include_directories(nbio PUBLIC
 target_compile_features(nbio PUBLIC cxx_std_20)
 
 if(NBIO_ENABLE_IO_URING)
+    message(STATUS "io_uring enabled")
     target_compile_definitions(nbio PUBLIC NBIO_ENABLE_IO_URING=1)
 endif()
 
 if(NBIO_ENABLE_RDMA)
+    message(STATUS "RDMA enabled")
     target_compile_definitions(nbio PUBLIC NBIO_ENABLE_RDMA=1)
 endif()
 

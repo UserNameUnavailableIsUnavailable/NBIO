@@ -51,8 +51,8 @@ class TcpSessionService final {
 
     // TcpSessionService is a thin wrapper over the transport: it forwards receive and
     // send to its simplex channels and owns the connection's lifetime.
-    nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> Receive(std::span<char> buffer);
-    nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> Send(std::span<const char> buffer);
+    nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> Receive(std::span<char> buffer);
+    nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> Send(std::span<const char> buffer);
 
     TcpReceiveChannel& receive_channel() noexcept { return receive_channel_; }
 

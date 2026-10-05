@@ -11,7 +11,7 @@
 
 namespace {
 using nbio::notification::ConditionVariable;
-using nbio::runtime;
+using nbio::Runtime;
 
 // A ConditionVariable binds the engine's notify channel on construction, so the
 // runtime has to be installed before any test body runs.
@@ -39,8 +39,8 @@ TEST_F(ConditionTesting, WaitsUntilPredicateTurnsTrue) {
     std::atomic_bool ready{false};
     std::atomic_int resumed{0};
 
-    auto token = runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
-    runtime::scheduler().Run();
+    auto token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
+    Runtime::scheduler().Run();
 
     std::thread notifier([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
@@ -48,7 +48,7 @@ TEST_F(ConditionTesting, WaitsUntilPredicateTurnsTrue) {
         condition.NotifyOne();
     });
 
-    runtime::scheduler().Run();
+    Runtime::scheduler().Run();
     notifier.join();
 
     EXPECT_EQ(resumed.load(std::memory_order_acquire), 1);
@@ -62,9 +62,9 @@ TEST_F(ConditionTesting, NotifyOneWakesOneWaiterAtATime) {
     std::promise<void> first_resume;
     auto first_resume_future = first_resume.get_future();
 
-    auto first_token = runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed, &first_resume));
-    auto second_token = runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
-    runtime::scheduler().Run();
+    auto first_token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed, &first_resume));
+    auto second_token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
+    Runtime::scheduler().Run();
 
     std::thread notifier([&] {
         ready.store(true, std::memory_order_release);

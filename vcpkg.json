@@ -28,7 +28,7 @@
     },
     "benchmark": {
       "description": "Build the benchmark suite",
-      "dependencies": [ "benchmark" ]
+      "dependencies": [ "benchmark", "cli11" ]
     }
   }
 }

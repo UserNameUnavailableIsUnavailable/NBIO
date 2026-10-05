@@ -5,10 +5,12 @@
 #include <nbio/async/Scheduler.hpp>
 #include <nbio/async/Task.hpp>
 #include <nbio/net/RdmaAcceptor.hpp>
+#include <nbio/net/RdmaResult.hpp>
 #include <nbio/net/Payload.hpp>
 #include <nbio/runtime/Runtime.hpp>
 #include <memory>
-#include <string>
+#include <optional>
+#include <system_error>
 #include <utility>
 
 #include <nbio/core/Channel.hpp>
@@ -21,17 +23,15 @@ class RdmaAcceptChannel final : public nbio::core::Channel<RdmaAcceptChannel> {
     using Payload = detail::PollPayload<RdmaAcceptChannel>;
 
     struct PendingAccept {
-        std::shared_ptr<RdmaSessionService> session{};
-        // Why no connection can be admitted any more, empty while none has
-        // failed.
-        std::string error{};
+        std::optional<RdmaConnector> connection{};
+        std::error_code error{};
     };
 
     RdmaAcceptChannel(nbio::net::RdmaAcceptor& acceptor, nbio::core::Multiplexer& multiplexer,
                       nbio::async::Scheduler& scheduler);
     ~RdmaAcceptChannel() noexcept;
 
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::shared_ptr<RdmaSessionService>, std::string>> accept();
+    nbio::async::Task<nbio::Runtime, RdmaResult<RdmaConnector>> accept();
 
     // The operation this channel wants from the backend is a one-shot poll; the
     // payload carries only whether one is already out there.

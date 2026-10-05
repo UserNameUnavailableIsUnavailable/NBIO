@@ -8,7 +8,7 @@
 #include <nbio/runtime/Runtime.hpp>
 
 namespace nbio::notification {
-ConditionVariable::ConditionVariable() : channel_(nbio::runtime::notify_channel()) {}
+ConditionVariable::ConditionVariable() : channel_(nbio::Runtime::notify_channel()) {}
 
 ConditionVariable::~ConditionVariable() noexcept {
     std::lock_guard lock(mutex_);

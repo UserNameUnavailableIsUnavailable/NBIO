@@ -41,7 +41,7 @@ nbio::Task<void> AnySleep() {
 }
 
 int main() {
-    nbio::run([]() -> nbio::Task<void> {
+    nbio::Run([]() -> nbio::Task<void> {
         co_await Sleep();
         co_await AllSleep();
         co_await AnySleep();

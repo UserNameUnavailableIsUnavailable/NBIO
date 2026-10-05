@@ -84,7 +84,7 @@ void many_writers_one_file() {
     }
 
     bool opened = false;
-    nbio::run([&]() -> nbio::Task<void> {
+    nbio::Run([&]() -> nbio::Task<void> {
         // The service is the one owner of the file, and it is a local of this frame:
         // the writers hold references into it, so it has to outlive every one of them.
         std::unique_ptr<nbio::fs::FileStreamService> file;

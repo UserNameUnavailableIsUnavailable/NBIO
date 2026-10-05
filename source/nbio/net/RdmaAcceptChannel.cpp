@@ -3,7 +3,7 @@
 #include <nbio/net/RdmaAcceptChannel.hpp>
 #include <nbio/async/Coroutine.hpp>
 #include <stdexcept>
-#include <string>
+#include <system_error>
 #include <utility>
 
 namespace nbio::net {
@@ -16,19 +16,22 @@ class RdmaAcceptAwaiter {
 
     template <typename PromiseType>
     bool await_suspend(std::coroutine_handle<PromiseType> handle) {
-        channel_.job().session.reset();
-        channel_.job().error = {};
+        channel_.job().connection.reset();
+        channel_.job().error.clear();
         channel_.Park(nbio::async::Coroutine::FromHandle(handle));
         channel_.Arm();
         return true;
     }
 
-    nbio::utility::expected<std::shared_ptr<RdmaSessionService>, std::string> await_resume() {
+    RdmaResult<RdmaConnector> await_resume() {
         auto& job = channel_.job();
-        if (job.session) {
-            return std::move(job.session);
+        if (job.error) {
+            return nbio::utility::unexpected(std::exchange(job.error, std::error_code{}));
         }
-        return nbio::utility::unexpected(std::exchange(job.error, std::string{}));
+        if (job.connection) {
+            return std::move(*job.connection);
+        }
+        return nbio::utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
     }
 
    private:
@@ -39,7 +42,7 @@ class RdmaAcceptAwaiter {
 RdmaAcceptChannel::RdmaAcceptChannel(nbio::net::RdmaAcceptor& acceptor, nbio::core::Multiplexer& multiplexer,
                                      nbio::async::Scheduler& scheduler)
     : nbio::core::Channel<RdmaAcceptChannel>(nbio::core::ChannelType::kRdmaAccept,
-                                                   static_cast<std::uintptr_t>(acceptor.native_handle()), multiplexer,
+                                                   static_cast<std::uintptr_t>(acceptor.event_channel_handle()), multiplexer,
                                                    scheduler),
       acceptor_(acceptor) {
     // The acceptor has to be polled rather than waited on, and this is the one
@@ -47,14 +50,14 @@ RdmaAcceptChannel::RdmaAcceptChannel(nbio::net::RdmaAcceptor& acceptor, nbio::co
     // report it to yet. A constructor is the one place still allowed to throw.
     if (auto armed = acceptor_.NonBlocking(true); !armed) [[unlikely]]
     {
-        throw std::runtime_error("Failed to make the rdma acceptor non-blocking: " + armed.error());
+        throw std::system_error(armed.error(), "Failed to make the rdma acceptor non-blocking");
     }
     // Registered on the first arm(): nothing to watch until a wait queues.
 }
 
 RdmaAcceptChannel::~RdmaAcceptChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::shared_ptr<RdmaSessionService>, std::string>> RdmaAcceptChannel::accept() {
+nbio::async::Task<nbio::Runtime, RdmaResult<RdmaConnector>> RdmaAcceptChannel::accept() {
     co_return co_await detail::RdmaAcceptAwaiter{*this};
 }
 
@@ -70,27 +73,28 @@ void RdmaAcceptChannel::Complete() {
 
     auto accepted = acceptor_.Accept();
     if (!accepted) [[unlikely]] {
-        job().session.reset();
+        job().connection.reset();
         job().error = accepted.error();
-    } else if (*accepted) {
-        // Building the session allocates its two channels, which is the one step
-        // left that can throw. Failing to build it belongs to this accept, not to
-        // whoever is waiting on the engine.
-        try {
-            job().session = std::make_shared<RdmaSessionService>(std::move(**accepted), multiplexer_, scheduler_);
-            job().error = {};
-        } catch (const std::exception& failure) {
-            job().session.reset();
-            job().error = std::string{failure.what()};
-        }
-    } else {
+    } else if (accepted->state == RdmaAcceptState::kWouldBlock) {
         // Nothing has asked to be admitted yet -- or the event was about a
         // connection that is already established. Either way the waiter stays
         // Parked and the channel keeps watching.
-        job().session.reset();
-        job().error = {};
+        job().connection.reset();
+        job().error.clear();
         Arm();
         return;
+    } else {
+        if (accepted->connection) {
+            job().connection = std::move(*accepted->connection);
+        } else {
+            job().error = make_error_code(RdmaErrc::kOperationFailed);
+        }
+        if (job().error) {
+            auto waiter = std::exchange(waiter_, {});
+            scheduler_.Submit(std::move(waiter));
+            return;
+        }
+        job().error.clear();
     }
 
     auto waiter = std::exchange(waiter_, {});

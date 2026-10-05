@@ -5,15 +5,16 @@
 #include <nbio/async/Scheduler.hpp>
 #include <nbio/async/Task.hpp>
 #include <nbio/net/RdmaConnector.hpp>
+#include <nbio/net/RdmaResult.hpp>
 #include <nbio/net/RdmaResourceManager.hpp>
 #include <nbio/net/Address.hpp>
 #include <nbio/net/Payload.hpp>
 #include <nbio/runtime/Runtime.hpp>
 #include <memory>
+#include <system_error>
 #include <utility>
 
 #include <nbio/core/Channel.hpp>
-#include "RdmaSessionService.hpp"
 
 namespace nbio::net {
 class RdmaConnectChannel final : public nbio::core::Channel<RdmaConnectChannel> {
@@ -22,8 +23,7 @@ class RdmaConnectChannel final : public nbio::core::Channel<RdmaConnectChannel> 
     using Payload = detail::PollPayload<RdmaConnectChannel>;
 
     struct PendingConnect {
-        std::shared_ptr<RdmaSessionService> session{};
-        std::string error;
+        std::error_code error{};
     };
 
     // The connection to establish: connect() finishes it and hands back a session
@@ -32,8 +32,7 @@ class RdmaConnectChannel final : public nbio::core::Channel<RdmaConnectChannel> 
                        nbio::async::Scheduler& scheduler);
     ~RdmaConnectChannel() noexcept;
 
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::shared_ptr<RdmaSessionService>, std::string>> Connect(
-        nbio::net::Address peer);
+    nbio::async::Task<nbio::Runtime, RdmaResult<void>> Connect(nbio::net::Address peer);
 
     // The operation this channel wants from the backend is a one-shot poll; the
     // payload carries only whether one is already out there.

@@ -5,6 +5,7 @@
 #include <nbio/async/Task.hpp>
 #include <nbio/utility/Expected.hpp>
 #include <nbio/net/RdmaHeader.hpp>
+#include <nbio/net/RdmaResult.hpp>
 #include <nbio/notification/ConditionVariable.hpp>
 #include <nbio/net/RdmaSessionService.hpp>
 #include <cstdint>
@@ -41,7 +42,7 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     // Says what this end can take and waits to hear the same from the peer. Both sides
     // do this as soon as they are connected, so neither has to know who speaks first,
     // and nothing else is sent or received until it has happened.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> handshake();
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> handshake();
 
     // Starts the reader. Until this is called nothing takes packets off the session,
     // so nothing is acknowledged and nothing arrives. Called once.
@@ -56,15 +57,15 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     // One payload, cut into as many packets as it needs. Waits for the peer to
     // acknowledge enough that the packets this adds stay inside the window, which is
     // the backpressure: a consumer that is slow simply does not get more.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Send(std::span<const char> payload);
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> Send(std::span<const char> payload);
 
     // The next payload the peer sent, empty once the link is over.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> Receive();
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<RdmaPayloadResult, std::string>> Receive();
 
     // Gives a payload back, which puts its chunk back in the pool -- and that is what
     // lets the peer send more, so the acknowledgement goes out here rather than when
     // the bytes arrived.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> release(std::span<char> payload);
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> release(std::span<char> payload);
 
     // What the peer has acknowledged, and what this end has sent: the distance between
     // them is what has to stay inside the peer's chunk count.
@@ -94,20 +95,20 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
 
     // Reads one packet off the session and says what was in it. The packet is not
     // released: its chunk goes back when its payload does.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<Incoming, std::string>> ReadPacket();
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<Incoming, std::string>> ReadPacket();
     // Works out what a packet meant: the ack inside it widens what may be sent, and a
     // payload goes on the queue for whoever asks for one.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Absorb(Incoming packet);
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> Absorb(Incoming packet);
 
     // One packet carrying `payload`, waited for: the header, the sequence, whatever
     // acknowledgement is owed, and the type the caller says it is. A meta packet is the
     // one thing sent through here that is not a payload, and its numbers mean the same
     // thing they mean on every other packet.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> SendPacket(std::span<const char> payload,
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> SendPacket(std::span<const char> payload,
                                                                           nbio::net::RdmaPacketType type);
 
     // Waits until the packets already in flight leave room for `packets` more.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> WaitForRoom(std::uint64_t packets);
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> WaitForRoom(std::uint64_t packets);
 
     bool RoomFor(std::uint64_t packets) const noexcept;
 
@@ -115,7 +116,7 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     // fails or the service is stopped. A static member rather than a lambda, so that the
     // service arrives as an ordinary parameter -- a coroutine's body is the wrong place
     // to be reading a closure.
-    static nbio::async::Task<nbio::runtime, void> Read(std::shared_ptr<RdmaDeliverService> self);
+    static nbio::async::Task<nbio::Runtime, void> Read(std::shared_ptr<RdmaDeliverService> self);
 
     // What start() Spawned the reader as, so that stop() can cancel it. Cancelling is
     // what lets the scheduler destroy the frame, and destroying the frame is what

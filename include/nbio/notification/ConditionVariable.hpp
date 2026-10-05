@@ -56,7 +56,7 @@ class ConditionVariable {
     ConditionVariableAwaiter<> wait();
     // Wait until the predicate returns true.
     template <typename Predicate>
-    nbio::async::Task<nbio::runtime, void> wait(Predicate predicate);
+    nbio::async::Task<nbio::Runtime, void> wait(Predicate predicate);
 
    private:
     template <typename Predicate>
@@ -72,7 +72,7 @@ class ConditionVariable {
 inline ConditionVariableAwaiter<> ConditionVariable::wait() { return ConditionVariableAwaiter<>(*this); }
 
 template <typename Predicate>
-inline nbio::async::Task<nbio::runtime, void> ConditionVariable::wait(Predicate predicate) {
+inline nbio::async::Task<nbio::Runtime, void> ConditionVariable::wait(Predicate predicate) {
     // The awaiter re-checks the predicate under mutex_, so this loop only
     // absorbs spurious wake-ups.
     while (!predicate()) {

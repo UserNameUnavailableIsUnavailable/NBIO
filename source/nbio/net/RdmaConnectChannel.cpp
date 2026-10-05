@@ -15,27 +15,21 @@ class RdmaConnectAwaiter {
 
     template <typename PromiseType>
     bool await_suspend(std::coroutine_handle<PromiseType>) {
-        channel_.job().session.reset();
-        channel_.job().error = {};
+        channel_.job().error.clear();
 
         if (auto connected = channel_.connector().Connect(peer_); connected) {
-            // The session owns the connection from here on: the connector the caller
-            // holds is moved from, and this channel never connects it again.
-            channel_.job().session = std::make_shared<RdmaSessionService>(std::move(channel_.connector()),
-                                                                          channel_.multiplexer(), channel_.scheduler());
         } else {
             channel_.job().error = connected.error();
         }
         return false;
     }
 
-    nbio::utility::expected<std::shared_ptr<RdmaSessionService>, std::string> await_resume() {
+    RdmaResult<void> await_resume() {
         auto& job = channel_.job();
-        if (job.session) {
-            return std::move(job.session);
-        } else {
-            return nbio::utility::unexpected(std::move(job.error));
+        if (job.error) {
+            return nbio::utility::unexpected(std::exchange(job.error, {}));
         }
+        return {};
     }
 
    private:
@@ -47,7 +41,7 @@ class RdmaConnectAwaiter {
 RdmaConnectChannel::RdmaConnectChannel(nbio::net::RdmaConnector& connector, nbio::core::Multiplexer& multiplexer,
                                        nbio::async::Scheduler& scheduler)
     : nbio::core::Channel<RdmaConnectChannel>(nbio::core::ChannelType::kRdmaConnect,
-                                                    static_cast<std::uintptr_t>(connector.cm_handle()), multiplexer,
+                                                    static_cast<std::uintptr_t>(connector.event_channel_handle()), multiplexer,
                                                     scheduler),
       connector_(connector) {
     // What there is to watch is the CM channel the connection was created with: the
@@ -57,8 +51,7 @@ RdmaConnectChannel::RdmaConnectChannel(nbio::net::RdmaConnector& connector, nbio
 
 RdmaConnectChannel::~RdmaConnectChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::shared_ptr<RdmaSessionService>, std::string>> RdmaConnectChannel::Connect(
-    nbio::net::Address peer) {
+nbio::async::Task<nbio::Runtime, RdmaResult<void>> RdmaConnectChannel::Connect(nbio::net::Address peer) {
     co_return co_await detail::RdmaConnectAwaiter{*this, std::move(peer)};
 }
 

@@ -14,12 +14,12 @@ namespace {
 // poll drains the shared channel, and the entry is then sitting in the receive
 // queue with nothing left to wake a Parked receive for it. Reaping first, every
 // time, is what keeps that from becoming a stall.
-nbio::utility::expected<std::optional<std::span<char>>, std::string> Reap(RdmaReceiveChannel& channel) {
-    if (auto reaped = channel.connection().poll_receive(0); !reaped) [[unlikely]]
+RdmaResult<RdmaReceiveResult> Reap(RdmaReceiveChannel& channel) {
+    if (auto reaped = channel.connection().PollReceive(0); !reaped) [[unlikely]]
     {
         return nbio::utility::unexpected(reaped.error());
     }
-    return channel.connection().receive();
+    return channel.connection().Receive();
 }
 }  // namespace
 
@@ -39,26 +39,26 @@ class RdmaReceiveAwaiter {
             channel_.job().error = chunk.error();
             return false;
         }
-        if (*chunk) {
-            channel_.job().chunk = std::move(*chunk);
+        if (chunk->state != RdmaReceiveState::kWouldBlock) {
+            channel_.job().result = std::move(*chunk);
             channel_.job().error.clear();
             return false;
         }
 
-        channel_.job().chunk = std::nullopt;
+        channel_.job().result = *chunk;
         channel_.job().error.clear();
         channel_.Park(nbio::async::Coroutine::FromHandle(handle));
         channel_.Arm();
         return true;
     }
 
-    nbio::utility::expected<std::optional<std::span<char>>, std::string> await_resume() const {
+    RdmaResult<RdmaReceiveResult> await_resume() const {
         auto& job = channel_.job();
-        if (!job.error.empty()) [[unlikely]] {
+        if (job.error) [[unlikely]] {
             // Consumed, so a later receive on this channel starts clean.
-            return nbio::utility::unexpected(std::exchange(job.error, std::string{}));
+            return nbio::utility::unexpected(std::exchange(job.error, std::error_code{}));
         }
-        return job.chunk;
+        return job.result;
     }
 
    private:
@@ -85,16 +85,16 @@ class RdmaReceiveTryAwaiter {
             return false;
         }
         channel_.job().error.clear();
-        channel_.job().chunk = std::move(*chunk);
+        channel_.job().result = std::move(*chunk);
         return false;
     }
 
-    nbio::utility::expected<std::optional<std::span<char>>, std::string> await_resume() const {
+    RdmaResult<RdmaReceiveResult> await_resume() const {
         auto& job = channel_.job();
-        if (!job.error.empty()) [[unlikely]] {
-            return nbio::utility::unexpected(std::exchange(job.error, std::string{}));
+        if (job.error) [[unlikely]] {
+            return nbio::utility::unexpected(std::exchange(job.error, std::error_code{}));
         }
-        return job.chunk;
+        return job.result;
     }
 
    private:
@@ -105,7 +105,7 @@ class RdmaReceiveTryAwaiter {
 RdmaReceiveChannel::RdmaReceiveChannel(nbio::net::RdmaConnector& connection, nbio::core::Multiplexer& multiplexer,
                                        nbio::async::Scheduler& scheduler)
     : nbio::core::Channel<RdmaReceiveChannel>(nbio::core::ChannelType::kRdmaReceive,
-                                                    static_cast<std::uintptr_t>(connection.native_handle()),
+                                                    static_cast<std::uintptr_t>(connection.completion_channel_handle()),
                                                     multiplexer, scheduler),
       connection_(connection) {
     // Registered on the first arm(): nothing to watch until a receive is Parked.
@@ -113,16 +113,16 @@ RdmaReceiveChannel::RdmaReceiveChannel(nbio::net::RdmaConnector& connection, nbi
 
 RdmaReceiveChannel::~RdmaReceiveChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaReceiveChannel::Receive() {
+nbio::async::Task<nbio::Runtime, RdmaResult<RdmaReceiveResult>> RdmaReceiveChannel::Receive() {
     co_return co_await detail::RdmaReceiveAwaiter{*this};
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaReceiveChannel::TryReceive() {
+nbio::async::Task<nbio::Runtime, RdmaResult<RdmaReceiveResult>> RdmaReceiveChannel::TryReceive() {
     co_return co_await detail::RdmaReceiveTryAwaiter{*this};
 }
 
-nbio::utility::expected<void, std::string> RdmaReceiveChannel::Release(std::span<char> chunk) noexcept {
-    return connection_.release(chunk);
+RdmaResult<void> RdmaReceiveChannel::Release(std::span<char> chunk) noexcept {
+    return connection_.Release(chunk);
 }
 
 RdmaReceiveChannel::Payload& RdmaReceiveChannel::Submit() { return payload_; }
@@ -135,16 +135,15 @@ void RdmaReceiveChannel::Complete() {
         return;
     }
 
-    auto delivered = connection_.poll_receive(0);
-    if (!delivered) [[unlikely]] {
-        job().error = delivered.error();
-    } else if (*delivered == 0 && !connection_.peer_closed() && !connection_.failed()) {
-        // Nothing came back and nothing is wrong: the event belonged to the send
-        // half, so keep waiting for a receive.
+    auto received = Reap(*this);
+    if (!received) [[unlikely]] {
+        job().error = received.error();
+    } else if (received->state == RdmaReceiveState::kWouldBlock) {
+        // The completion belonged to the send half; keep waiting for a receive.
         Arm();
         return;
-    } else if (auto received = connection_.receive(); received && *received) {
-        job().chunk = std::move(*received);
+    } else {
+        job().result = std::move(*received);
     }
 
     auto waiter = std::exchange(waiter_, {});

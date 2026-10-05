@@ -143,7 +143,7 @@ TEST(TcpSocketChannelTesting, OneReadinessEventServesEveryWaitingAccept) {
     auto clients = connect_clients(address, kWriters);
 
     std::size_t accepted = 0;
-    nbio::run(accept_all(acceptor, accepted));
+    nbio::Run(accept_all(acceptor, accepted));
 
     EXPECT_EQ(accepted, kWriters) << "every waiter has to be answered";
 }
@@ -159,7 +159,7 @@ TEST(TcpSocketChannelTesting, EveryWaitingAcceptIsAnsweredOnURing) {
     auto clients = connect_clients(address, kWriters);
 
     std::size_t accepted = 0;
-    nbio::run(accept_all(acceptor, accepted));
+    nbio::Run(accept_all(acceptor, accepted));
 
     EXPECT_EQ(accepted, kWriters) << "every waiter has to be answered";
 }
@@ -171,7 +171,7 @@ TEST(TcpSocketChannelTesting, SendsFromManyCoroutinesKeepTheOrderTheyQueuedIn) {
     auto client = nbio::net::TcpSocket{address.family(), nbio::net::TcpSocket::Type::kStream};
     ASSERT_TRUE(client.Connect(address));
 
-    nbio::run(accept_and_send(acceptor));
+    nbio::Run(accept_and_send(acceptor));
 
     // Read the whole stream back: everything every writer asked to send, and in an
     // order that keeps each writer's own chunks in the order it wrote them.
@@ -227,7 +227,7 @@ TEST(TcpSocketChannelTesting, ReceivesFromManyCoroutinesShareWhatArrived) {
     const std::string sent(kBytes, 'x');
     std::vector<std::string> received(kReceivers);
 
-    nbio::run(accept_and_receive(acceptor, client, sent, received, kBytesPerReceiver));
+    nbio::Run(accept_and_receive(acceptor, client, sent, received, kBytesPerReceiver));
 
     // Whatever arrived was handed to the waiters in the order they queued, so each
     // one of them has some of it and together they have all of it.

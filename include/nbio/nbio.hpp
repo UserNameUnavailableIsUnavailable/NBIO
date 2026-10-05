@@ -17,7 +17,9 @@
 
 #if defined(NBIO_ENABLE_RDMA)
 #include <nbio/net/RdmaAcceptChannel.hpp>
+#include <nbio/net/RdmaAcceptService.hpp>
 #include <nbio/net/RdmaConnectChannel.hpp>
+#include <nbio/net/RdmaConnectService.hpp>
 #include <nbio/net/RdmaDeliverService.hpp>
 #include <nbio/net/RdmaSessionService.hpp>
 #endif
@@ -30,23 +32,23 @@
 #include <nbio/net/TcpConnectService.hpp>
 #include <nbio/net/TcpSessionService.hpp>
 
-// Umbrella header for the nbio backend: the non-blocking I/O runtime built on
-// epoll / io_uring. Everything here is backend-specific; the generic coroutine
-// machinery lives in nbio::async.
 namespace nbio {
-template <typename T>
-using Task = nbio::async::Task<nbio::runtime, T>;
-
-inline bool is_initialized() { return nbio::runtime::is_initialized(); }
-
-inline void initialize(std::unique_ptr<core::Multiplexer> multiplexer) {
-    nbio::runtime::initialize(std::move(multiplexer));
+inline bool is_initialized() {
+    return nbio::Runtime::is_initialized();
 }
 
-inline void run(Task<void> main) { nbio::async::run(std::move(main)); }
+inline void initialize(std::unique_ptr<core::Multiplexer> multiplexer) {
+    nbio::Runtime::initialize(std::move(multiplexer));
+}
+template <typename T>
+using Task = nbio::async::Task<nbio::Runtime, T>;
+
+inline void Run(Task<void> main) {
+    async::Run(std::move(main));
+}
 
 template <typename T>
-nbio::async::CoroutineToken Spawn(Task<T> task) {
-    return nbio::async::Spawn(std::move(task));
+inline nbio::async::CoroutineToken Spawn(Task<T> task) {
+    return async::Spawn(std::move(task));
 }
 }  // namespace nbio

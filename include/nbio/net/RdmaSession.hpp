@@ -27,13 +27,13 @@ class RdmaSessionService final {
     // Hands one acquired send chunk to the device and returns; PollSend() is
     // what waits for the completions that hand the chunks back.
     nbio::utility::expected<void, std::string> Send(std::span<char> chunk, std::size_t length) noexcept;
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::size_t, std::string>> PollSend(std::size_t count = 0);
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<std::size_t, std::string>> PollSend(std::size_t count = 0);
 
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> Receive();
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> Receive();
 
     // A message that has already arrived, without waiting for one: nothing when
     // none is ready. For a coroutine that has something else to do meanwhile.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> TryReceive();
+    nbio::async::Task<nbio::Runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> TryReceive();
 
     // Hands a received chunk back for the next message.
     nbio::utility::expected<void, std::string> Release(std::span<char> chunk) noexcept;

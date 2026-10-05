@@ -14,7 +14,7 @@ nbio::Task<void> Grace() {
 
 int main(int argc, char* argv[]) {
     nbio::Spawn(Grace());
-    async::run([]() -> nbio::Task<void> { co_await nbio::time::SystemTimeService{}.sleep(std::chrono::seconds(10)); }());
+    nbio::Run([]() -> nbio::Task<void> { co_await nbio::time::SystemTimeService{}.sleep(std::chrono::seconds(10)); }());
     std::cout << "The process exited gracefully" << std::endl;
     return 0;
 }

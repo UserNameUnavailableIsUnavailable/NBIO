@@ -3,16 +3,14 @@
 #include <CLI/CLI.hpp>
 #include <nbio/utility/Byte.hpp>
 #include <nbio/utility/Expected.hpp>
-#include <nbio/net/RdmaAcceptor.hpp>
-#include <nbio/net/RdmaConnector.hpp>
+#include <nbio/net/RdmaAcceptService.hpp>
+#include <nbio/net/RdmaConnectService.hpp>
 #include <nbio/net/RdmaHeader.hpp>
 #include <nbio/net/RdmaResourceManager.hpp>
 #include <nbio/net/Address.hpp>
 #include <nbio/runtime/Runtime.hpp>
 #include <nbio/core/EpollMultiplexer.hpp>
 #include <nbio/nbio.hpp>
-#include <nbio/net/RdmaAcceptChannel.hpp>
-#include <nbio/net/RdmaConnectChannel.hpp>
 #include <nbio/net/RdmaDeliverService.hpp>
 #include <nbio/core/URingMultiplexer.hpp>
 #include <array>
@@ -118,17 +116,17 @@ nbio::Task<nbio::utility::expected<std::span<char>, std::string>> ReceiveOne(nbi
     if (!incoming) [[unlikely]] {
         co_return nbio::utility::unexpected(incoming.error());
     }
-    if (!*incoming) [[unlikely]] {
+    if (incoming->state == nbio::net::RdmaPayloadState::kEnded) [[unlikely]] {
         co_return nbio::utility::unexpected(std::string{"the link ended"});
     }
-    co_return **incoming;
+    co_return incoming->payload;
 }
 
-nbio::Task<void> ServerBenchmark(nbio::net::RdmaAcceptChannel& channel, nbio::net::RdmaDeliverService::Layout layout,
+nbio::Task<void> ServerBenchmark(nbio::net::RdmaAcceptService& acceptor, nbio::net::RdmaDeliverService::Layout layout,
                                  Outcome& outcome) {
-    auto admitted = co_await channel.accept();
+    auto admitted = co_await acceptor.Accept();
     if (!admitted) [[unlikely]] {
-        outcome.failure = "accept failed: " + admitted.error();
+        outcome.failure = "accept failed: " + admitted.error().message();
         co_return;
     }
 
@@ -199,12 +197,13 @@ nbio::Task<void> ServerBenchmark(nbio::net::RdmaAcceptChannel& channel, nbio::ne
     co_return;
 }
 
-nbio::Task<void> ClientBenchmark(nbio::net::RdmaConnectChannel& channel, const nbio::net::Address& peer,
+nbio::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector, const nbio::net::Address* source,
+                                 const nbio::net::Address& peer,
                                  nbio::net::RdmaDeliverService::Layout layout, std::size_t message_bytes,
                                  std::size_t messages, Outcome& outcome) {
-    auto connected = co_await channel.Connect(peer);
+    auto connected = source != nullptr ? co_await connector.Connect(*source, peer) : co_await connector.Connect(peer);
     if (!connected) [[unlikely]] {
-        outcome.failure = "connect failed: " + connected.error();
+        outcome.failure = "connect failed: " + connected.error().message();
         co_return;
     }
 
@@ -355,31 +354,22 @@ int main(int argc, char* argv[]) {
 
     Outcome outcome;
     if (mode == "server") {
-        nbio::net::RdmaAcceptor acceptor(resources);
-        assert(acceptor.ReuseAddress(true).has_value());
-        const auto bound = acceptor.listen(peer);
-
-        if (!bound) [[unlikely]] {
-            std::printf("listen failed on %s:%u: %s\n", ip.c_str(), static_cast<unsigned>(port), bound.error().c_str());
-            return 1;
-        }
         RunEngine(
             [&] {
-                nbio::net::RdmaAcceptChannel channel(acceptor, nbio::runtime::multiplexer(), nbio::runtime::scheduler());
-                nbio::run(ServerBenchmark(channel, layout, outcome));
+                nbio::net::RdmaAcceptService acceptor(resources, peer);
+                nbio::Run(ServerBenchmark(acceptor, layout, outcome));
             },
             multiplexer, outcome);
     } else {
         RunEngine(
             [&] {
-                nbio::net::RdmaConnector connector(resources);
-                if (!local_ip.empty()) {
-                    if (const auto bound = connector.Bind(nbio::net::Address::FromV4(local_ip, 0)); !bound) {
-                        throw std::runtime_error("cannot bind local rdma address: " + bound.error());
-                    }
+                nbio::net::RdmaConnectService connector(resources);
+                if (local_ip.empty()) {
+                    nbio::Run(ClientBenchmark(connector, nullptr, peer, layout, message_bytes, messages, outcome));
+                } else {
+                    const auto source = nbio::net::Address::FromV4(local_ip, 0);
+                    nbio::Run(ClientBenchmark(connector, &source, peer, layout, message_bytes, messages, outcome));
                 }
-                nbio::net::RdmaConnectChannel channel(connector, nbio::runtime::multiplexer(), nbio::runtime::scheduler());
-                nbio::run(ClientBenchmark(channel, peer, layout, message_bytes, messages, outcome));
             },
             multiplexer, outcome);
     }

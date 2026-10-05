@@ -38,8 +38,8 @@ class FileStreamService final {
     ~FileStreamService() noexcept = default;
 
     // One read or write at the file's current position, answered with what it moved.
-    nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> Read(std::span<char> buffer);
-    nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> Write(std::span<const char> buffer);
+    nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> Read(std::span<char> buffer);
+    nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> Write(std::span<const char> buffer);
 
     nbio::fs::FileStream& stream() noexcept { return stream_; }
 

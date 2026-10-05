@@ -78,7 +78,7 @@ void FileWriteChannel::Complete() {
     }
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> FileWriteChannel::write(
+nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> FileWriteChannel::write(
     std::span<const char> buffer) {
     auto result = co_await WriteAwaiter{*this, buffer};
     if (result.status == OperationStatus::kError) {

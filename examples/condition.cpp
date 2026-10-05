@@ -29,7 +29,7 @@ int main() {
         std::cout << "sleep finished" << std::endl;
         condition.NotifyOne();
     });
-    nbio::run(wait_condition(condition));
+    nbio::Run(wait_condition(condition));
 }
 
 

@@ -10,7 +10,7 @@
 
 namespace nbio::net {
 TcpAcceptService::TcpAcceptService(const nbio::net::Address& address, int backlog)
-    : acceptor_(address.family()), channel_(acceptor_, nbio::runtime::multiplexer(), nbio::runtime::scheduler()) {
+    : acceptor_(address.family()), channel_(acceptor_, nbio::Runtime::multiplexer(), nbio::Runtime::scheduler()) {
     // A listener that cannot be restarted while the socket it replaced is still in
     // TIME_WAIT is not much of a listener, and nothing else can set this: the socket
     // belongs to the acceptor.
@@ -26,7 +26,7 @@ TcpAcceptService::TcpAcceptService(const nbio::net::Address& address, int backlo
 
 TcpAcceptService::~TcpAcceptService() noexcept = default;
 
-nbio::async::Task<nbio::runtime, 
+nbio::async::Task<nbio::Runtime, 
     utility::expected<std::pair<std::shared_ptr<TcpSessionService>, nbio::net::Address>, std::error_code>>
 TcpAcceptService::Accept() {
     auto accepted = co_await channel_.Accept();

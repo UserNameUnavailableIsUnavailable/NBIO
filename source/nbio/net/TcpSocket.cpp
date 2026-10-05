@@ -283,7 +283,7 @@ utility::expected<Address, std::error_code> TcpSocket::GetPeerAddress() const no
 }
 
 void TcpSocket::Shutdown(ShutdownHow how) noexcept {
-    if (!IsValid()) {
+    if (!is_valid()) {
         return;
     }
     int what = 0;
@@ -314,7 +314,7 @@ void TcpSocket::Shutdown(ShutdownHow how) noexcept {
 }
 
 void TcpSocket::Close() noexcept {
-    if (!IsValid()) {
+    if (!is_valid()) {
         return;
     }
 #if defined(__linux__)

@@ -20,13 +20,13 @@ class TcpAcceptor {
     utility::expected<void, std::error_code> Bind(const Address& address, std::size_t backlog = 4096) noexcept;
     utility::expected<void, std::error_code> ReuseAddress(bool toggle = true) noexcept;
     utility::expected<TcpConnector, std::error_code> Accept() noexcept;
-    TcpConnector adopt(TcpSocket socket) const noexcept;
+    TcpConnector Adopt(TcpSocket socket) const noexcept;
     utility::expected<void, std::error_code> NonBlocking(bool toggle = true) noexcept;
 
     std::uintptr_t native_handle() const noexcept { return socket_.native_handle(); }
 
     void Close() noexcept;
-    bool IsValid() const noexcept;
+    bool is_valid() const noexcept;
 
    private:
     TcpSocket socket_;

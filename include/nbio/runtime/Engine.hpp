@@ -13,7 +13,7 @@
 #include <nbio/signal/SystemSignalChannel.hpp>
 #include <nbio/time/SystemTimerChannel.hpp>
 
-namespace nbio::runtime {
+namespace nbio::Runtime {
 class Engine {
    public:
     Engine(const Engine&) = delete;
@@ -68,4 +68,4 @@ class Engine {
 
 // Creates the platform default backend
 std::unique_ptr<Multiplexer> make_default_multiplexer();
-}  // namespace nbio::runtime
+}  // namespace nbio::Runtime

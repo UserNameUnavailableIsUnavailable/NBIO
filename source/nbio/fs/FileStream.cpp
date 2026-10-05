@@ -19,11 +19,11 @@ FileStream::FileStream(const std::string& path, nbio::fs::FileMode mode, std::fi
     }
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> FileStream::read(std::span<char> buffer) {
+nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> FileStream::read(std::span<char> buffer) {
     co_return co_await read_channel().read(buffer);
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> FileStream::write(std::span<const char> buffer) {
+nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> FileStream::write(std::span<const char> buffer) {
     co_return co_await write_channel().write(buffer);
 }
 

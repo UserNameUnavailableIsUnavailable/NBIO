@@ -92,7 +92,7 @@ class ConnectAwaiter {
 // the implicit object parameter of a member coroutine is laid out where the promise
 // lives, so `*this` inside the body comes back as the inherited control block instead
 // of the channel. Keeping it a parameter keeps it in the parameter area.
-static nbio::async::Task<nbio::runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> ConnectOn(
+static nbio::async::Task<nbio::Runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> ConnectOn(
     TcpConnectChannel& channel, const nbio::net::Address* source,
     const nbio::net::Address& target) {
     co_return co_await ConnectAwaiter{channel, source, target};
@@ -116,12 +116,12 @@ void TcpConnectChannel::Complete() {
 
 TcpConnectChannel::Payload& TcpConnectChannel::Submit() { return payload_; }
 
-nbio::async::Task<nbio::runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> TcpConnectChannel::Connect(
+nbio::async::Task<nbio::Runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> TcpConnectChannel::Connect(
     const nbio::net::Address& target) {
     return ConnectOn(*this, nullptr, target);
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> TcpConnectChannel::Connect(
+nbio::async::Task<nbio::Runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> TcpConnectChannel::Connect(
     const nbio::net::Address& source, const nbio::net::Address& target) {
     return ConnectOn(*this, &source, target);
 }

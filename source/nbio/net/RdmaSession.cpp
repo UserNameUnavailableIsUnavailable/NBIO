@@ -12,15 +12,15 @@ nbio::utility::expected<void, std::string> RdmaSessionService::Send(std::span<ch
     return send_channel_.Send(chunk, length);
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::size_t, std::string>> RdmaSessionService::PollSend(std::size_t count) {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<std::size_t, std::string>> RdmaSessionService::PollSend(std::size_t count) {
     co_return co_await send_channel_.Poll(count);
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaSessionService::Receive() {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaSessionService::Receive() {
     co_return co_await receive_channel_.Receive();
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaSessionService::TryReceive() {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaSessionService::TryReceive() {
     co_return co_await receive_channel_.TryReceive();
 }
 

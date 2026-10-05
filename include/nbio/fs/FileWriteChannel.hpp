@@ -27,7 +27,7 @@ class FileWriteChannel final : public nbio::core::Channel<FileWriteChannel> {
                      nbio::async::Scheduler& scheduler);
     ~FileWriteChannel() noexcept;
 
-    nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> write(std::span<const char> buffer);
+    nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> write(std::span<const char> buffer);
 
     // The operation the backend performs lives in the payload; the backend fills
     // the transmissions and asks the channel to reap them.

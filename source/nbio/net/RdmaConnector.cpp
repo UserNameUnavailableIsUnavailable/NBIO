@@ -11,16 +11,14 @@
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
-#include <cstring>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 
 namespace nbio::net {
 namespace {
-// The verbs and rdma_cm calls report a failure as a nonzero return plus errno, so
-// every message this file builds ends the same way.
-std::string Failing(std::string_view what) { return std::string{what} + ": " + ::strerror(errno); }
+std::error_code Failing([[maybe_unused]] std::string_view what) { return {errno, std::system_category()}; }
 
 std::string DescribeCmEvent(const ::rdma_cm_event& event) {
     std::string description = ::rdma_event_str(event.event);
@@ -34,10 +32,10 @@ std::string DescribeCmEvent(const ::rdma_cm_event& event) {
 // owns are non-blocking, because an event loop may be watching them, so this polls
 // the fd and then takes the event rather than blocking inside rdma_get_cm_event.
 // The caller acknowledges what comes back.
-utility::expected<::rdma_cm_event*, std::string> WaitCmEvent(::rdma_event_channel* channel, int timeout_ms) noexcept {
+RdmaResult<::rdma_cm_event*> WaitCmEvent(::rdma_event_channel* channel, int timeout_ms) noexcept {
     pollfd waiter{.fd = channel->fd, .events = POLLIN, .revents = 0};
     if (::poll(&waiter, 1, timeout_ms) <= 0) [[unlikely]] {
-        return utility::unexpected(std::string{"An rdma connection event did not arrive"});
+        return utility::unexpected(std::make_error_code(std::errc::timed_out));
     }
     ::rdma_cm_event* event{nullptr};
     if (::rdma_get_cm_event(channel, &event) != 0) [[unlikely]] {
@@ -57,7 +55,7 @@ RdmaConnector::RdmaConnector(::rdma_cm_id* communication_id, ::rdma_event_channe
     if (!communication_id_ || !event_channel_) {
         throw std::invalid_argument("an rdma connection needs a communication id and a channel of its own");
     }
-    build_queue_pair();
+    BuildQueuePair();
 }
 
 RdmaConnector::RdmaConnector(RdmaResourceManager& resources) : resources_(&resources) {
@@ -66,13 +64,13 @@ RdmaConnector::RdmaConnector(RdmaResourceManager& resources) : resources_(&resou
     // arrive on for the rest of its life.
     event_channel_ = ::rdma_create_event_channel();
     if (!event_channel_) [[unlikely]] {
-        throw std::runtime_error(Failing("Failed to create an rdma event channel"));
+        throw std::system_error(Failing("Failed to create an rdma event channel"), "Failed to create an rdma event channel");
     }
     if (::rdma_create_id(event_channel_, &communication_id_, nullptr, RDMA_PS_TCP) != 0) [[unlikely]] {
         const auto why = Failing("Failed to create an rdma id");
         ::rdma_destroy_event_channel(event_channel_);
         event_channel_ = nullptr;
-        throw std::runtime_error(why);
+        throw std::system_error(why, "Failed to create an rdma id");
     }
     // The keys are the manager's to give, and they are the same for every
     // connection that shares its regions.
@@ -80,14 +78,14 @@ RdmaConnector::RdmaConnector(RdmaResourceManager& resources) : resources_(&resou
     receive_lkey_ = resources.receive_region()->lkey;
 }
 
-utility::expected<void, std::string> RdmaConnector::Bind(const net::Address& local) noexcept {
+RdmaResult<void> RdmaConnector::Bind(const net::Address& local) noexcept {
     if (::rdma_bind_addr(communication_id_, const_cast<::sockaddr*>(local.storage<::sockaddr>())) != 0) [[unlikely]] {
         return utility::unexpected(Failing("Failed to bind the rdma address"));
     }
     return {};
 }
 
-void RdmaConnector::build_queue_pair() {
+void RdmaConnector::BuildQueuePair() {
     try {
         // The completion channel comes first, because it is what the queues report
         // on and what an event loop watches for them. Both queues share it: a
@@ -141,9 +139,9 @@ void RdmaConnector::build_queue_pair() {
         // A stream whose queues are not armed can never be polled, and the
         // constructor is the one place allowed to throw, so the failure
         // unwinds here instead of being carried as state.
-        if (auto armed = arm_completion_queues(); !armed) [[unlikely]]
+        if (auto armed = ArmCompletionQueues(); !armed) [[unlikely]]
         {
-            throw std::runtime_error(armed.error());
+            throw std::system_error(armed.error(), "Failed to arm the RDMA completion queues");
         }
 
         for (std::uint32_t i = 0; i < kSendChunks; ++i) {
@@ -162,16 +160,16 @@ void RdmaConnector::build_queue_pair() {
         }
 
         // Post all receive chunks, otherwise incoming sends will fail.
-        post_all_receives();
+        PostAllReceives();
     } catch (...) {
         // The id and the channel stay: the acceptor rejects the connection with the
         // one and this object's destructor gives back the other.
-        release_device_objects();
+        ReleaseDeviceObjects();
         throw;
     }
 }
 
-void RdmaConnector::release_device_objects() noexcept {
+void RdmaConnector::ReleaseDeviceObjects() noexcept {
     if (queue_pair_) {
         ::rdma_destroy_qp(communication_id_);
         queue_pair_ = nullptr;
@@ -195,7 +193,7 @@ RdmaConnector::RdmaConnector(RdmaConnector&& other) noexcept { swap(*this, other
 
 RdmaConnector& RdmaConnector::operator=(RdmaConnector&& other) noexcept {
     if (this != &other) {
-        reset();
+        Reset();
         swap(*this, other);
     }
     return *this;
@@ -225,9 +223,9 @@ void swap(RdmaConnector& lhs, RdmaConnector& rhs) noexcept {
     swap(lhs.peer_closed_, rhs.peer_closed_);
 }
 
-RdmaConnector::~RdmaConnector() noexcept { reset(); }
+RdmaConnector::~RdmaConnector() noexcept { Reset(); }
 
-void RdmaConnector::reset() noexcept {
+void RdmaConnector::Reset() noexcept {
     // A disconnect first, so the peer is told the connection is over rather than
     // left with a queue pair that went quiet. Its disconnect event is the peer's
     // to read on its own channel.
@@ -248,8 +246,8 @@ void RdmaConnector::reset() noexcept {
     // ibv_destroy_cq for them -- so a link that is closed right after its last
     // completion would hang here instead of returning. Nothing reads these
     // completions: the queue pair is gone and every chunk has been reclaimed.
-    drain_completion_queue(send_completion_queue_);
-    drain_completion_queue(receive_completion_queue_);
+    DrainCompletionQueue(send_completion_queue_);
+    DrainCompletionQueue(receive_completion_queue_);
     if (receive_completion_queue_) {
         ::ibv_destroy_cq(receive_completion_queue_);
         receive_completion_queue_ = nullptr;
@@ -273,7 +271,7 @@ void RdmaConnector::reset() noexcept {
     peer_closed_ = true;
 }
 
-void RdmaConnector::drain_completion_queue(::ibv_cq* queue) noexcept {
+void RdmaConnector::DrainCompletionQueue(::ibv_cq* queue) noexcept {
     if (!queue || !completion_channel_) {
         return;
     }
@@ -327,43 +325,43 @@ void RdmaConnector::ReclaimChunks() noexcept {
     ready_recv_chunks_.clear();
 }
 
-RdmaConnector::Handle RdmaConnector::native_handle() const noexcept {
+RdmaConnector::Handle RdmaConnector::completion_channel_handle() const noexcept {
     return completion_channel_ ? completion_channel_->fd : -1;
 }
 
-RdmaConnector::Handle RdmaConnector::cm_handle() const noexcept { return event_channel_ ? event_channel_->fd : -1; }
+RdmaConnector::Handle RdmaConnector::event_channel_handle() const noexcept { return event_channel_ ? event_channel_->fd : -1; }
 
-void RdmaConnector::close() noexcept { reset(); }
+void RdmaConnector::Close() noexcept { Reset(); }
 
-void RdmaConnector::fail(std::string message) noexcept {
+void RdmaConnector::Fail(std::error_code error) noexcept {
     // The first failure is the cause and the rest are its consequences, so only
     // the first one is kept.
-    if (error_.empty()) {
-        error_ = std::move(message);
+    if (!error_) {
+        error_ = error;
     }
 }
 
-utility::expected<std::optional<std::span<char>>, std::string> RdmaConnector::acquire() noexcept {
+RdmaResult<RdmaBufferResult> RdmaConnector::Acquire() noexcept {
     if (failed()) [[unlikely]] {
         return utility::unexpected(error_);
     }
     if (queue_pair_ == nullptr) [[unlikely]] {
-        return utility::unexpected(std::string{"The rdma connection is not established"});
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
     }
     if (free_send_chunks_.empty()) {
-        return std::optional<std::span<char>>{};
+        return RdmaBufferResult{};
     }
     auto ret = free_send_chunks_.front();
     busy_send_chunks_.splice(busy_send_chunks_.end(), free_send_chunks_, free_send_chunks_.begin());
-    return std::optional<std::span<char>>{resources_->send_memory().data(ret)};
+    return RdmaBufferResult{.state = RdmaBufferState::kAvailable, .buffer = resources_->send_memory().data(ret)};
 }
 
-utility::expected<void, std::string> RdmaConnector::send(std::span<char> chunk, std::size_t length) noexcept {
+RdmaResult<void> RdmaConnector::Send(std::span<char> chunk, std::size_t length) noexcept {
     if (failed()) [[unlikely]] {
         return utility::unexpected(error_);
     }
     if (queue_pair_ == nullptr) [[unlikely]] {
-        return utility::unexpected(std::string{"The rdma connection is not established"});
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
     }
 
     auto exists = [this, &chunk](utility::BitmapMemory::Chunk other) {
@@ -375,10 +373,10 @@ utility::expected<void, std::string> RdmaConnector::send(std::span<char> chunk, 
         // the device does not own, so this is a programming error rather than a
         // runtime one -- but it is reported like any other failure rather than
         // thrown, because a data-plane call must not unwind.
-        return utility::unexpected(std::string{"rdma send requires a chunk from acquire()"});
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidBuffer));
     }
     if (length > chunk.size()) [[unlikely]] {
-        return utility::unexpected(std::string{"rdma send is longer than the acquired chunk"});
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidBuffer));
     }
     if (length == 0) {
         free_send_chunks_.splice(free_send_chunks_.end(), busy_send_chunks_, it);
@@ -398,7 +396,7 @@ utility::expected<void, std::string> RdmaConnector::send(std::span<char> chunk, 
     ibv_send_wr* rejected{nullptr};
     if (const int code = ::ibv_post_send(queue_pair_, &request, &rejected); code != 0) [[unlikely]]
     {
-        return utility::unexpected(std::string{"Failed to post rdma send: "} + ::strerror(code));
+        return utility::unexpected(std::error_code{code, std::generic_category()});
     }
 
     // The HCA owns the chunk until its completion retires it.
@@ -406,59 +404,59 @@ utility::expected<void, std::string> RdmaConnector::send(std::span<char> chunk, 
     return {};
 }
 
-utility::expected<std::optional<std::span<char>>, std::string> RdmaConnector::receive() noexcept {
+RdmaResult<RdmaReceiveResult> RdmaConnector::Receive() noexcept {
     if (failed()) [[unlikely]] {
         return utility::unexpected(error_);
     }
     if (queue_pair_ == nullptr) [[unlikely]] {
-        return utility::unexpected(std::string{"The rdma connection is not established"});
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
     }
     if (ready_recv_chunks_.empty()) {
-        return std::optional<std::span<char>>{};
+        return RdmaReceiveResult{peer_closed_ ? RdmaReceiveState::kPeerClosed : RdmaReceiveState::kWouldBlock, {}};
     }
     auto [chunk, size] = ready_recv_chunks_.front();
     ready_recv_chunks_.pop_front();
     busy_recv_chunks_.push_back(chunk);
     auto data = resources_->receive_memory().data(chunk);
-    return std::optional<std::span<char>>{data.first(std::min(size, data.size()))};
+    return RdmaReceiveResult{RdmaReceiveState::kData, data.first(std::min(size, data.size()))};
 }
 
-utility::expected<void, std::string> RdmaConnector::release(std::span<char> chunk) noexcept {
+RdmaResult<void> RdmaConnector::Release(std::span<char> chunk) noexcept {
     if (failed()) [[unlikely]] {
         return utility::unexpected(error_);
     }
     if (queue_pair_ == nullptr) [[unlikely]] {
-        return utility::unexpected(std::string{"The rdma connection is not established"});
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
     }
     auto it =
         std::find_if(busy_recv_chunks_.begin(), busy_recv_chunks_.end(), [this, &chunk](utility::BitmapMemory::Chunk other) {
             return chunk.data() == resources_->receive_memory().data(other).data();
         });
     if (it == busy_recv_chunks_.end()) [[unlikely]] {
-        return utility::unexpected(std::string{"rdma release requires a chunk from receive()"});
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidBuffer));
     }
     free_recv_chunks_.splice(free_recv_chunks_.end(), busy_recv_chunks_, it);
-    post_all_receives();
+    PostAllReceives();
     if (failed()) [[unlikely]] {
         return utility::unexpected(error_);
     }
     return {};
 }
 
-utility::expected<void, std::string> RdmaConnector::arm_completion_queues() noexcept {
+RdmaResult<void> RdmaConnector::ArmCompletionQueues() noexcept {
     // Arming is what makes the completion channel raise an event, so a queue
     // that refuses to arm would leave poll() waiting for something that can
     // never arrive.
     if (send_completion_queue_ && ::ibv_req_notify_cq(send_completion_queue_, 0) != 0) [[unlikely]] {
-        return utility::unexpected(std::string{"Failed to arm the rdma send completion queue: "} + ::strerror(errno));
+        return utility::unexpected(Failing("Failed to arm the rdma send completion queue"));
     }
     if (receive_completion_queue_ && ::ibv_req_notify_cq(receive_completion_queue_, 0) != 0) [[unlikely]] {
-        return utility::unexpected(std::string{"Failed to arm the rdma receive completion queue: "} + ::strerror(errno));
+        return utility::unexpected(Failing("Failed to arm the rdma receive completion queue"));
     }
     return {};
 }
 
-void RdmaConnector::drain_completion_events() noexcept {
+void RdmaConnector::DrainCompletionEvents() noexcept {
     if (!completion_channel_) {
         return;
     }
@@ -474,7 +472,7 @@ void RdmaConnector::drain_completion_events() noexcept {
     }
 }
 
-void RdmaConnector::ack_completion_events(::ibv_cq* queue) noexcept {
+void RdmaConnector::AckCompletionEvents(::ibv_cq* queue) noexcept {
     if (queue == send_completion_queue_ && send_unacked_events_ != 0) {
         ::ibv_ack_cq_events(send_completion_queue_, send_unacked_events_);
         send_unacked_events_ = 0;
@@ -484,7 +482,7 @@ void RdmaConnector::ack_completion_events(::ibv_cq* queue) noexcept {
     }
 }
 
-utility::expected<std::size_t, std::string> RdmaConnector::poll_completion_queue(::ibv_cq* queue, int timeout_ms) noexcept {
+RdmaResult<std::size_t> RdmaConnector::PollCompletionQueue(::ibv_cq* queue, int timeout_ms) noexcept {
     if (!queue || !completion_channel_) {
         return std::size_t{0};
     }
@@ -492,7 +490,7 @@ utility::expected<std::size_t, std::string> RdmaConnector::poll_completion_queue
         return utility::unexpected(error_);
     }
 
-    if (auto armed = arm_completion_queues(); !armed) [[unlikely]]
+    if (auto armed = ArmCompletionQueues(); !armed) [[unlikely]]
     {
         return utility::unexpected(armed.error());
     }
@@ -502,9 +500,9 @@ utility::expected<std::size_t, std::string> RdmaConnector::poll_completion_queue
         (void)::poll(&waiter, 1, timeout_ms);
     }
 
-    drain_completion_events();
-    ack_completion_events(queue);
-    if (auto armed = arm_completion_queues(); !armed) [[unlikely]]
+    DrainCompletionEvents();
+    AckCompletionEvents(queue);
+    if (auto armed = ArmCompletionQueues(); !armed) [[unlikely]]
     {
         return utility::unexpected(armed.error());
     }
@@ -517,7 +515,7 @@ utility::expected<std::size_t, std::string> RdmaConnector::poll_completion_queue
             break;
         }
         for (int i = 0; i < count; ++i) {
-            handle_completion(completions[i]);
+            HandleCompletion(completions[i]);
         }
         total += static_cast<std::size_t>(count);
     }
@@ -530,7 +528,7 @@ utility::expected<std::size_t, std::string> RdmaConnector::poll_completion_queue
     return total;
 }
 
-void RdmaConnector::post_all_receives() noexcept {
+void RdmaConnector::PostAllReceives() noexcept {
     if (failed()) {
         return;
     }
@@ -552,19 +550,19 @@ void RdmaConnector::post_all_receives() noexcept {
         if (const int code = ::ibv_post_recv(queue_pair_, &request, &rejected); code != 0) [[unlikely]]
         {
             free_recv_chunks_.push_front(chunk);
-            fail(std::string{"Failed to post an rdma receive: "} + ::strerror(code));
+            Fail(std::error_code{code, std::generic_category()});
             return;
         }
         pending_recv_chunks_.push_back(chunk);
     }
 }
 
-void RdmaConnector::handle_completion(const ::ibv_wc& completion) noexcept {
+void RdmaConnector::HandleCompletion(const ::ibv_wc& completion) noexcept {
     if (completion.status != IBV_WC_SUCCESS) [[unlikely]] {
         peer_closed_ = true;
         if (completion.status != IBV_WC_WR_FLUSH_ERR)  // shutdown
         {
-            fail(std::string{::ibv_wc_status_str(completion.status)});
+            Fail(make_error_code(RdmaErrc::kCompletionFailed));
         }
         const auto chunk = utility::BitmapMemory::Chunk::decode(completion.wr_id);
         auto remove = [chunk](std::list<utility::BitmapMemory::Chunk>& list) {
@@ -607,15 +605,15 @@ void RdmaConnector::handle_completion(const ::ibv_wc& completion) noexcept {
     }
 }
 
-utility::expected<std::size_t, std::string> RdmaConnector::PollSend(int timeout_ms) noexcept {
-    return poll_completion_queue(send_completion_queue_, timeout_ms);
+RdmaResult<std::size_t> RdmaConnector::PollSend(int timeout_ms) noexcept {
+    return PollCompletionQueue(send_completion_queue_, timeout_ms);
 }
 
-utility::expected<std::size_t, std::string> RdmaConnector::poll_receive(int timeout_ms) noexcept {
-    return poll_completion_queue(receive_completion_queue_, timeout_ms);
+RdmaResult<std::size_t> RdmaConnector::PollReceive(int timeout_ms) noexcept {
+    return PollCompletionQueue(receive_completion_queue_, timeout_ms);
 }
 
-utility::expected<std::size_t, std::string> RdmaConnector::poll(int timeout_ms) noexcept {
+RdmaResult<std::size_t> RdmaConnector::Poll(int timeout_ms) noexcept {
     // Only one half waits: waiting on both in turn would make the answer depend
     // on which direction happened to arrive first. The second half is then
     // reaped without waiting, which costs nothing when it has nothing.
@@ -623,14 +621,14 @@ utility::expected<std::size_t, std::string> RdmaConnector::poll(int timeout_ms) 
     if (!send) [[unlikely]] {
         return utility::unexpected(send.error());
     }
-    auto receive = poll_receive(0);
+    auto receive = PollReceive(0);
     if (!receive) [[unlikely]] {
         return utility::unexpected(receive.error());
     }
     return *send + *receive;
 }
 
-utility::expected<void, std::string> RdmaConnector::await_established() noexcept {
+RdmaResult<void> RdmaConnector::WaitForEstablish() noexcept {
     auto event = WaitCmEvent(event_channel_, 2000);
     if (!event) [[unlikely]] {
         return utility::unexpected(event.error());
@@ -639,13 +637,13 @@ utility::expected<void, std::string> RdmaConnector::await_established() noexcept
     const bool established = (*event)->event == RDMA_CM_EVENT_ESTABLISHED;
     ::rdma_ack_cm_event(*event);
     if (!established) [[unlikely]] {
-        return utility::unexpected(std::string{"The rdma connection was not established: "} + description);
+        return utility::unexpected(make_error_code(RdmaErrc::kUnexpectedEvent));
     }
     return {};
 }
 
-utility::expected<void, std::string> RdmaConnector::Connect(net::Address peer) noexcept {
-    const auto take_event = [this](::rdma_cm_event_type wanted) noexcept -> utility::expected<void, std::string> {
+RdmaResult<void> RdmaConnector::Connect(net::Address peer) noexcept {
+    const auto take_event = [this](::rdma_cm_event_type wanted) noexcept -> RdmaResult<void> {
         auto event = WaitCmEvent(event_channel_, 2000);
         if (!event) {
             return utility::unexpected(event.error());
@@ -654,7 +652,7 @@ utility::expected<void, std::string> RdmaConnector::Connect(net::Address peer) n
         const auto description = DescribeCmEvent(*(*event));
         ::rdma_ack_cm_event(*event);
         if (received != wanted) {
-            return utility::unexpected(std::string{"Unexpected rdma CM event: "} + description);
+            return utility::unexpected(make_error_code(RdmaErrc::kUnexpectedEvent));
         }
         return {};
     };
@@ -673,7 +671,7 @@ utility::expected<void, std::string> RdmaConnector::Connect(net::Address peer) n
     // first point the manager can be checked against it: a connection built with
     // another device's regions and keys would fail every completion.
     if (!resources_->Serves(*communication_id_)) [[unlikely]] {
-        return utility::unexpected(std::string{"The rdma route resolved to a device the resource manager does not hold"});
+        return utility::unexpected(make_error_code(RdmaErrc::kDeviceMismatch));
     }
 
     if (::rdma_resolve_route(communication_id_, 2000) != 0) [[unlikely]] {
@@ -688,9 +686,9 @@ utility::expected<void, std::string> RdmaConnector::Connect(net::Address peer) n
     // pair can be built against it. A failure here leaves the object holding the id
     // and the channel, which its destructor gives back.
     try {
-        build_queue_pair();
+        BuildQueuePair();
     } catch (const std::exception& error) {
-        return utility::unexpected(std::string{error.what()});
+        return utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
     }
 
     ::rdma_conn_param param{};
@@ -701,7 +699,7 @@ utility::expected<void, std::string> RdmaConnector::Connect(net::Address peer) n
     if (::rdma_connect(communication_id_, &param) != 0) [[unlikely]] {
         return utility::unexpected(Failing("Failed to connect the rdma connection"));
     }
-    if (auto established = await_established(); !established) [[unlikely]]
+    if (auto established = WaitForEstablish(); !established) [[unlikely]]
     {
         return utility::unexpected(established.error());
     }

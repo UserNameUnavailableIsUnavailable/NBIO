@@ -4,6 +4,7 @@
 #include <rdma/rdma_cma.h>
 
 #include <nbio/utility/Bitmap.hpp>
+#include <nbio/net/RdmaResult.hpp>
 #include <nbio/utility/Expected.hpp>
 #include <nbio/net/RdmaResourceManager.hpp>
 #include <nbio/net/Address.hpp>
@@ -12,7 +13,7 @@
 #include <list>
 #include <optional>
 #include <span>
-#include <string>
+#include <system_error>
 
 namespace nbio::net {
 class RdmaAcceptor;
@@ -43,11 +44,11 @@ class RdmaConnector {
 
     // Pins the local address this connection comes from, before connecting. Left
     // out, the kernel picks along the route.
-    utility::expected<void, std::string> Bind(const net::Address& local) noexcept;
+    RdmaResult<void> Bind(const net::Address& local) noexcept;
 
     // Resolves the peer, builds the queue pair and finishes the handshake. What is
     // left is a connection that can send, receive and close.
-    utility::expected<void, std::string> Connect(net::Address peer) noexcept;
+    RdmaResult<void> Connect(net::Address peer) noexcept;
 
     // Both completion queues, and the most work requests either queue may hold.
     static constexpr std::uint32_t kQueueDepth{32};
@@ -72,12 +73,12 @@ class RdmaConnector {
     // once so multiple sends can be in flight. An empty answer is not a
     // failure: every chunk is either in flight or already filled, and the
     // caller can come back once a completion has retired one.
-    utility::expected<std::optional<std::span<char>>, std::string> acquire() noexcept;
+    RdmaResult<RdmaBufferResult> Acquire() noexcept;
 
     // Posts the first `length` bytes of `chunk`. The HCA owns them until the
     // completion arrives, so the caller must not touch them until then. Returns
     // without waiting: several sends may be in flight at once.
-    utility::expected<void, std::string> send(std::span<char> chunk, std::size_t length) noexcept;
+    RdmaResult<void> Send(std::span<char> chunk, std::size_t length) noexcept;
 
     // Sends that have been posted and not yet reaped. Every one of them is
     // holding a chunk the caller cannot use again yet.
@@ -85,44 +86,36 @@ class RdmaConnector {
 
     // A chunk the peer filled, to read and then hand back. Empty until data has
     // arrived and been polled.
-    utility::expected<std::optional<std::span<char>>, std::string> receive() noexcept;
+    RdmaResult<RdmaReceiveResult> Receive() noexcept;
 
     // Returns a received chunk and reposts it for the next message.
-    utility::expected<void, std::string> release(std::span<char> chunk) noexcept;
+    RdmaResult<void> Release(std::span<char> chunk) noexcept;
 
     // Reaps send completions and answers how many were reaped. 0 polls,
     // negative blocks. A stream that has already failed refuses to poll instead
     // of pretending its completions mean anything.
-    utility::expected<std::size_t, std::string> PollSend(int timeout_ms = 0) noexcept;
+    RdmaResult<std::size_t> PollSend(int timeout_ms = 0) noexcept;
 
     // Reaps receive completions. 0 polls, negative blocks.
-    utility::expected<std::size_t, std::string> poll_receive(int timeout_ms = 0) noexcept;
+    RdmaResult<std::size_t> PollReceive(int timeout_ms = 0) noexcept;
 
     // Reaps both directions. 0 polls, negative blocks.
-    utility::expected<std::size_t, std::string> poll(int timeout_ms = 0) noexcept;
+    RdmaResult<std::size_t> Poll(int timeout_ms = 0) noexcept;
 
     // Readable whenever a completion is queued: an event, not data.
-    Handle native_handle() const noexcept;
+    Handle completion_channel_handle() const noexcept;
 
-    // Readable while a connection-management event is queued for this connection:
-    // the handshake finishing, a rejection, or the peer going away. An event, not
-    // data.
-    Handle cm_handle() const noexcept;
+    Handle event_channel_handle() const noexcept;
 
     // Ends the connection: disconnects, then gives up the id, the channel, the
     // queue pair and the chunks. The destructor calls it.
-    void close() noexcept;
+    void Close() noexcept;
 
-    bool peer_closed() const noexcept { return peer_closed_; }
+    bool is_peer_closed() const noexcept { return peer_closed_; }
 
-    // True once anything has gone wrong with this stream, and then for good:
-    // `error()` says what went wrong the first time.
-    bool failed() const noexcept { return !error_.empty(); }
+    bool failed() const noexcept { return static_cast<bool>(error_); }
 
-    // Why the stream failed, and empty while it has not. The device reports its
-    // failures as status codes rather than errno values, so this is text rather
-    // than a `std::error_code`.
-    const std::string& error() const noexcept { return error_; }
+    std::error_code error() const noexcept { return error_; }
 
    private:
     // The acceptor's end: an id the kernel created for a connection that asked to be
@@ -134,45 +127,45 @@ class RdmaConnector {
     // finished. Nothing else is something to report: the id is the only one on this
     // channel, so an event that is not the established one is that connection's
     // failure.
-    utility::expected<void, std::string> await_established() noexcept;
+    RdmaResult<void> WaitForEstablish() noexcept;
 
     // Creates the completion channel, the two completion queues and the queue pair,
     // takes this connection's chunks from the pools and posts its receives. Throws:
     // the callers are the acceptor's constructor path, where a failure is a
     // rejected connection, and connect(), where it is a failed one.
-    void build_queue_pair();
+    void BuildQueuePair();
 
-    // Gives back everything build_queue_pair() took, leaving the id and the channel
+    // Gives back everything BuildQueuePair() took, leaving the id and the channel
     // with this object.
-    void release_device_objects() noexcept;
+    void ReleaseDeviceObjects() noexcept;
 
     // Post all receive chunks.
-    void post_all_receives() noexcept;
+    void PostAllReceives() noexcept;
 
     // Asks both completion queues to raise another event. The only thing in
     // this class a provider can refuse, which is why it is the one helper whose
     // failure is reported rather than recorded.
-    utility::expected<void, std::string> arm_completion_queues() noexcept;
-    void drain_completion_events() noexcept;
-    void ack_completion_events(::ibv_cq* queue) noexcept;
-    utility::expected<std::size_t, std::string> poll_completion_queue(::ibv_cq* queue, int timeout_ms) noexcept;
+    RdmaResult<void> ArmCompletionQueues() noexcept;
+    void DrainCompletionEvents() noexcept;
+    void AckCompletionEvents(::ibv_cq* queue) noexcept;
+    RdmaResult<std::size_t> PollCompletionQueue(::ibv_cq* queue, int timeout_ms) noexcept;
 
-    void handle_completion(const struct ::ibv_wc& completion) noexcept;
+    void HandleCompletion(const struct ::ibv_wc& completion) noexcept;
 
     // Empties one completion queue and acknowledges its events, which is what
     // lets the queue be destroyed at all.
-    void drain_completion_queue(::ibv_cq* queue) noexcept;
+    void DrainCompletionQueue(::ibv_cq* queue) noexcept;
 
     // Records the first failure and leaves the stream closed for business.
     // Later failures are dropped: the first one is the cause, the rest are its
     // consequences.
-    void fail(std::string message) noexcept;
+    void Fail(std::error_code error) noexcept;
 
     // Hands this connection's chunks back to the shared pools.
     void ReclaimChunks() noexcept;
 
     // Tears down everything this stream owns.
-    void reset() noexcept;
+    void Reset() noexcept;
 
     ::rdma_cm_id* communication_id_{nullptr};       // each connection gets an id
     ::rdma_event_channel* event_channel_{nullptr};  // where that id reports its events
@@ -200,7 +193,7 @@ class RdmaConnector {
 
     unsigned send_unacked_events_{0};
     unsigned receive_unacked_events_{0};
-    std::string error_{};  // empty until the first failure, then the reason
+    std::error_code error_{};
     bool peer_closed_{false};
 };
 }  // namespace nbio::net

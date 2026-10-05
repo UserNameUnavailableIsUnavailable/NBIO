@@ -13,10 +13,10 @@ namespace {
 // The connect body, as a plain coroutine whose channel is an ordinary local: the
 // channel lives in this frame for the length of one connect, which is exactly as long
 // as a connect channel is good for.
-nbio::async::Task<nbio::runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> ConnectOn(
+nbio::async::Task<nbio::Runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> ConnectOn(
     const nbio::net::Address* source, const nbio::net::Address& target,
     nbio::net::Address::Family family) {
-    TcpConnectChannel channel{nbio::net::TcpConnector{family}, nbio::runtime::multiplexer(), nbio::runtime::scheduler()};
+    TcpConnectChannel channel{nbio::net::TcpConnector{family}, nbio::Runtime::multiplexer(), nbio::Runtime::scheduler()};
     auto connected = source != nullptr ? co_await channel.Connect(*source, target) : co_await channel.Connect(target);
     if (!connected) [[unlikely]] {
         co_return utility::unexpected<std::error_code>(connected.error());
@@ -29,12 +29,12 @@ nbio::async::Task<nbio::runtime, utility::expected<std::shared_ptr<TcpSessionSer
 
 TcpConnectService::TcpConnectService(nbio::net::Address::Family family) : family_(family) {}
 
-nbio::async::Task<nbio::runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> TcpConnectService::Connect(
+nbio::async::Task<nbio::Runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> TcpConnectService::Connect(
     const nbio::net::Address& target) {
     return ConnectOn(nullptr, target, family_);
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> TcpConnectService::Connect(
+nbio::async::Task<nbio::Runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> TcpConnectService::Connect(
     const nbio::net::Address& source, const nbio::net::Address& target) {
     return ConnectOn(&source, target, family_);
 }

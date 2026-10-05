@@ -3,10 +3,7 @@
 #include <rdma/rdma_cma.h>
 
 #include <cerrno>
-#include <cstring>
 #include <stdexcept>
-#include <string>
-#include <string_view>
 #include <utility>
 
 #include <nbio/net/RdmaAcceptor.hpp>
@@ -14,9 +11,7 @@
 
 namespace nbio::net {
 namespace {
-// The verbs and rdma_cm calls report a failure as a nonzero return plus errno,
-// so every message this file builds ends the same way.
-std::string Failing(std::string_view what) { return std::string{what} + ": " + ::strerror(errno); }
+std::error_code Failing() { return {errno, std::system_category()}; }
 
 enum class CmEventStatus {
     kEvent,
@@ -52,31 +47,31 @@ RdmaAcceptor::RdmaAcceptor(RdmaResourceManager& resources) : resources_(&resourc
     }
 }
 
-utility::expected<void, std::string> RdmaAcceptor::listen(net::Address address, int backlog) noexcept {
+RdmaResult<void> RdmaAcceptor::Listen(net::Address address, int backlog) noexcept {
     address_ = std::move(address);
     if (::rdma_bind_addr(communication_id_, address_.storage<::sockaddr>())) [[unlikely]] {
-        return utility::unexpected(Failing("Failed to bind rdma address"));
+        return utility::unexpected(Failing());
     }
     // The address is what picks the device, and the manager holds one: an address
     // that resolves somewhere else would give every connection it admits a queue
     // pair built with regions and keys that device does not know.
     if (!resources_->Serves(*communication_id_)) [[unlikely]] {
-        return utility::unexpected(std::string{"Failed to bind rdma address: it does not name the manager's device"});
+        return utility::unexpected(make_error_code(RdmaErrc::kDeviceMismatch));
     }
     if (::rdma_listen(communication_id_, backlog)) [[unlikely]] {
-        return utility::unexpected(Failing("Failed to listen on rdma address"));
+        return utility::unexpected(Failing());
     }
     return {};
 }
 
-utility::expected<std::optional<RdmaConnector>, std::string> RdmaAcceptor::Accept() noexcept {
+RdmaResult<RdmaAcceptResult> RdmaAcceptor::Accept() noexcept {
     while (true) {
         ::rdma_cm_event* event{nullptr};
         switch (PollCmEvent(event_channel_, &event)) {
             case CmEventStatus::kNone:
-                return std::optional<RdmaConnector>{};  // nothing has asked to be admitted
+                return RdmaAcceptResult{};
             case CmEventStatus::kFailure:
-                return utility::unexpected(Failing("Failed to get rdma CM event"));
+                return utility::unexpected(Failing());
             case CmEventStatus::kEvent:
                 break;
         }
@@ -94,7 +89,7 @@ utility::expected<std::optional<RdmaConnector>, std::string> RdmaAcceptor::Accep
         if (!resources_->Serves(*cm_id)) [[unlikely]] {
             ::rdma_reject(cm_id, nullptr, 0);
             ::rdma_ack_cm_event(event);
-            return utility::unexpected(std::string{"rdma connection resolved to another device than the manager holds"});
+            return utility::unexpected(make_error_code(RdmaErrc::kDeviceMismatch));
         }
 
         // An acceptor gets a new connection request on the event channel, then it creates a new channel for that
@@ -103,68 +98,58 @@ utility::expected<std::optional<RdmaConnector>, std::string> RdmaAcceptor::Accep
         if (!channel) [[unlikely]] {
             ::rdma_reject(cm_id, nullptr, 0);
             ::rdma_ack_cm_event(event);
-            return utility::unexpected(Failing("Failed to create an rdma event channel for a connection"));
+            return utility::unexpected(Failing());
         }
         if (::rdma_ack_cm_event(event) != 0) [[unlikely]] {
             ::rdma_destroy_event_channel(channel);
             ::rdma_reject(cm_id, nullptr, 0);
-            return utility::unexpected(Failing("Failed to acknowledge rdma CM event"));
+            return utility::unexpected(Failing());
         }
         // move the cm_id to the connector's channel for load balancing
         if (::rdma_migrate_id(cm_id, channel) != 0) [[unlikely]] {
             ::rdma_destroy_event_channel(channel);
             ::rdma_reject(cm_id, nullptr, 0);
-            return utility::unexpected(Failing("Failed to migrate an rdma connection to its own event channel"));
+            return utility::unexpected(Failing());
         }
 
-        // Building the connection is the one step that can still throw: it creates
-        // two completion queues, a queue pair and takes its chunks. Whatever it
-        // cannot get it gives back itself, so all that is left to do here is to
-        // reject the connection and report why.
-        std::optional<RdmaConnector> connection;
         try {
-            connection = RdmaConnector(cm_id, channel, *resources_);
+            RdmaConnector connector(cm_id, channel, *resources_);
+            ::rdma_conn_param param{};
+            param.responder_resources = 1;
+            param.initiator_depth = 1;
+            param.retry_count = 7;
+            param.rnr_retry_count = 7;  // stall rather than fail when receives run dry
+            if (::rdma_accept(cm_id, &param)) [[unlikely]] {
+                return utility::unexpected(Failing());
+            }
+            if (auto established = connector.WaitForEstablish(); !established) [[unlikely]]
+            {
+                return utility::unexpected(established.error());
+            }
+            return RdmaAcceptResult{.state = RdmaAcceptState::kAccepted, .connection = std::move(connector)};
         } catch (const std::exception& error) {
             // The connection never took either of them.
             ::rdma_reject(cm_id, nullptr, 0);
             ::rdma_destroy_id(cm_id);
             ::rdma_destroy_event_channel(channel);
-            return utility::unexpected(std::string{error.what()});
+            return utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
         }
-
-        ::rdma_conn_param param{};
-        param.responder_resources = 1;
-        param.initiator_depth = 1;
-        param.retry_count = 7;
-        param.rnr_retry_count = 7;  // stall rather than fail when receives run dry
-        if (::rdma_accept(cm_id, &param)) [[unlikely]] {
-            return utility::unexpected(Failing("Failed to accept rdma connection"));
-        }
-
-        // rdma_accept only starts the handshake: the connection is usable once it
-        // says so, and that event arrives on the connection's own channel. A
-        // failure here tears the connection down through its destructor.
-        if (auto established = connection->await_established(); !established) [[unlikely]]
-        {
-            return utility::unexpected(established.error());
-        }
-        return std::move(connection);
     }
 }
 
-utility::expected<void, std::string> RdmaAcceptor::NonBlocking(bool toggle) noexcept {
+RdmaResult<void> RdmaAcceptor::NonBlocking(bool toggle) noexcept {
     const int flags = ::fcntl(event_channel_->fd, F_GETFL, 0);
     if (flags < 0 || ::fcntl(event_channel_->fd, F_SETFL, toggle ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK)) < 0)
         [[unlikely]] {
-        return utility::unexpected(Failing("Failed to set the rdma event channel non-blocking"));
+        return utility::unexpected(Failing());
     }
     return {};
 }
-utility::expected<void, std::string> RdmaAcceptor::ReuseAddress(bool enabled) noexcept {
+RdmaResult<void> RdmaAcceptor::ReuseAddress(bool enabled) noexcept {
     int reuse = enabled ? 1 : 0;
     auto ret = ::rdma_set_option(communication_id_, RDMA_OPTION_ID, RDMA_OPTION_ID_REUSEADDR, &reuse, sizeof(reuse));
     if (ret != 0) {
-        return utility::unexpected(Failing("Failed to enable address reuse"));
+        return utility::unexpected(Failing());
     }
     return {};
 }

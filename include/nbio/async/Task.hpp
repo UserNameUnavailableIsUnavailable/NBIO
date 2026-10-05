@@ -78,14 +78,14 @@ struct Promise {
     };
 };
 
-template <typename runtimeTag, typename T>
+template <typename RuntimeTag, typename T>
 class Task {
    public:
     struct promise_type : Promise {
         // Names the runtime that owns this frame. The awaiter compares it with
         // the caller's, so a cross-runtime co_await is a compile error rather
         // than the callee running on the wrong thread.
-        using runtime = runtimeTag;
+        using Runtime = RuntimeTag;
 
         std::variant<std::monostate, T, std::exception_ptr> result_;
 
@@ -152,7 +152,7 @@ class Task {
 
         // Only a caller belonging to the same runtime may await this task.
         template <typename CallerPromise>
-            requires std::same_as<typename CallerPromise::runtime, runtimeTag>
+            requires std::same_as<typename CallerPromise::Runtime, RuntimeTag>
         std::coroutine_handle<> await_suspend(std::coroutine_handle<CallerPromise> caller) noexcept {
             auto& callee = callee_.promise();
             callee.continuation = caller;
@@ -178,11 +178,11 @@ class Task {
     std::coroutine_handle<> handle_{};
 };
 
-template <typename runtimeTag>
-class Task<runtimeTag, void> {
+template <typename RuntimeTag>
+class Task<RuntimeTag, void> {
    public:
     struct promise_type : Promise {
-        using runtime = runtimeTag;
+        using Runtime = RuntimeTag;
 
         std::exception_ptr error_;
 
@@ -236,7 +236,7 @@ class Task<runtimeTag, void> {
         bool await_ready() noexcept { return !callee_ || callee_.done(); }
 
         template <typename CallerPromise>
-            requires std::same_as<typename CallerPromise::runtime, runtimeTag>
+            requires std::same_as<typename CallerPromise::Runtime, RuntimeTag>
         std::coroutine_handle<> await_suspend(std::coroutine_handle<CallerPromise> caller) noexcept {
             // in side a symmetric transfer, the callee inherits the caller's control block and continuation.
             auto& callee = callee_.promise();

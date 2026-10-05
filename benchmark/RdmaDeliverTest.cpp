@@ -30,6 +30,8 @@
 #include <nbio/net/RdmaAcceptChannel.hpp>
 #include <nbio/net/RdmaConnectChannel.hpp>
 #include <nbio/net/RdmaDeliverService.hpp>
+#include <nbio/net/RdmaAcceptService.hpp>
+#include <nbio/net/RdmaConnectService.hpp>
 #include <nbio/core/URingMultiplexer.hpp>
 #include <array>
 #include <atomic>
@@ -134,13 +136,13 @@ nbio::Task<nbio::utility::expected<void, std::string>> Take(nbio::net::RdmaDeliv
         if (!incoming) [[unlikely]] {
             co_return nbio::utility::unexpected(incoming.error());
         }
-        if (!*incoming) [[unlikely]] {
+        if (incoming->state == nbio::net::RdmaPayloadState::kEnded) [[unlikely]] {
             // The one thing that ends a receive with nothing in it is the link being over.
             co_return nbio::utility::unexpected("the link ended after " + std::to_string(received) + " of " +
                                        std::to_string(bytes) + " bytes");
         }
 
-        const std::span<char> payload = **incoming;
+        const std::span<char> payload = incoming->payload;
         if (payload.size() > bytes - received) [[unlikely]] {
             co_return nbio::utility::unexpected("a packet carried " + std::to_string(payload.size()) + " bytes where " +
                                        std::to_string(bytes - received) + " were still expected");
@@ -166,11 +168,11 @@ nbio::Task<nbio::utility::expected<void, std::string>> Take(nbio::net::RdmaDeliv
 // then wait for the receiver's report. The report is what says the payload arrived whole
 // and in order, so the clock is read when it lands rather than when the last packet was
 // posted -- a posted send is not a sent one.
-nbio::Task<void> SendEnd(nbio::net::RdmaAcceptChannel& channel, nbio::net::RdmaDeliverService::Layout layout, std::size_t bytes,
+nbio::Task<void> SendEnd(nbio::net::RdmaAcceptService& acceptor, nbio::net::RdmaDeliverService::Layout layout, std::size_t bytes,
                          Outcome& outcome, Progress& progress) {
-    auto admitted = co_await channel.accept();
+    auto admitted = co_await acceptor.Accept();
     if (!admitted) [[unlikely]] {
-        outcome.failure = "the connection was not admitted: " + admitted.error();
+        outcome.failure = "the connection was not admitted: " + admitted.error().message();
         co_return;
     }
 
@@ -201,16 +203,16 @@ nbio::Task<void> SendEnd(nbio::net::RdmaAcceptChannel& channel, nbio::net::RdmaD
         outcome.failure = "the answer could not be received: " + answer.error();
         co_return;
     }
-    if (!*answer) [[unlikely]] {
+    if (answer->state == nbio::net::RdmaPayloadState::kEnded) [[unlikely]] {
         outcome.failure = "the link ended before the receiver answered";
         co_return;
     }
     Report report;
-    if (!DecodeReport(**answer, report)) [[unlikely]] {
+    if (!DecodeReport(answer->payload, report)) [[unlikely]] {
         outcome.failure = "the answer was not a report";
         co_return;
     }
-    (void)co_await service->release(**answer);
+    (void)co_await service->release(answer->payload);
 
     outcome.seconds = SecondsSince(started);
     if (report.bytes != bytes) [[unlikely]] {
@@ -236,12 +238,12 @@ nbio::Task<void> SendEnd(nbio::net::RdmaAcceptChannel& channel, nbio::net::RdmaD
 // The receiving end, and the one the window is really about: it takes the payload,
 // releases each packet, and answers. Its own reader is what advances the sender's window,
 // so an acknowledgement that went out at the wrong moment would stall the sender here.
-nbio::Task<void> ReceiveEnd(nbio::net::RdmaConnectChannel& channel, nbio::net::Address master,
+nbio::Task<void> ReceiveEnd(nbio::net::RdmaConnectService& connector, nbio::net::Address master,
                             nbio::net::RdmaDeliverService::Layout layout, std::size_t bytes, Outcome& outcome,
                             Progress& progress) {
-    auto connected = co_await channel.Connect(master);
+    auto connected = co_await connector.Connect(master);
     if (!connected) [[unlikely]] {
-        outcome.failure = "the connection was not established: " + connected.error();
+        outcome.failure = "the connection was not established: " + connected.error().message();
         co_return;
     }
 
@@ -428,12 +430,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    nbio::net::RdmaAcceptor acceptor(sending_resources);
-    const auto listening = acceptor.listen(nbio::net::Address::FromV4(address, listening_on));
-    if (!listening) [[unlikely]] {
-        std::printf("cannot listen on %s:%u: %s\n", address.c_str(), listening_on, listening.error().c_str());
-        return 1;
-    }
     const nbio::net::Address master = nbio::net::Address::FromV4(address, listening_on);
 
     std::printf("%zu bytes as %zu packets of %zu bytes, window of %zu of a pool of %zu, %s:%u on %s, %s\n", bytes,
@@ -456,8 +452,8 @@ int main(int argc, char* argv[]) {
     std::thread sender([&] {
         RunEngine(
             [&] {
-                nbio::net::RdmaAcceptChannel channel(acceptor, nbio::runtime::multiplexer(), nbio::runtime::scheduler());
-                nbio::run(SendEnd(channel, layout, bytes, sending, progress));
+                nbio::net::RdmaAcceptService acceptor(sending_resources, master);
+                nbio::Run(SendEnd(acceptor, layout, bytes, sending, progress));
             },
             multiplexer, sending);
         Print(sending, "sender");
@@ -465,9 +461,8 @@ int main(int argc, char* argv[]) {
     std::thread receiver([&] {
         RunEngine(
             [&] {
-                nbio::net::RdmaConnector connector(receiving_resources);
-                nbio::net::RdmaConnectChannel channel(connector, nbio::runtime::multiplexer(), nbio::runtime::scheduler());
-                nbio::run(ReceiveEnd(channel, master, layout, bytes, receiving, progress));
+                nbio::net::RdmaConnectService connector(receiving_resources);
+                nbio::Run(ReceiveEnd(connector, master, layout, bytes, receiving, progress));
             },
             multiplexer, receiving);
         Print(receiving, "receiver");

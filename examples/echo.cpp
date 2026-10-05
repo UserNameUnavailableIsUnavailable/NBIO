@@ -61,6 +61,6 @@ nbio::Task<void> Service() {
     }
 }
 
-int main() { async::run(Service()); }
+int main() { nbio::Run(Service()); }
 
 

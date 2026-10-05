@@ -43,8 +43,8 @@ class FileStream {
     // to another open before that channel unregisters itself.
     ~FileStream() noexcept = default;
 
-    nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> read(std::span<char> buffer);
-    nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> write(std::span<const char> buffer);
+    nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> read(std::span<char> buffer);
+    nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> write(std::span<const char> buffer);
 
     std::uintptr_t native_handle() const noexcept { return file_.native_handle(); }
 

@@ -11,7 +11,7 @@
 #include "Coroutine.hpp"
 
 namespace nbio::async {
-template <typename runtimeTag, typename T>
+template <typename RuntimeTag, typename T>
 class Task;
 
 // Drives the coroutines of one thread, and destroys the frames that have reached a
@@ -28,8 +28,8 @@ class Scheduler {
     // Takes ownership of a new root coroutine and queues its first run. The block goes
     // into the registry, and that registry entry is the only strong reference to it: the
     // token this returns observes and never owns.
-    template <typename runtimeTag, typename T>
-    CoroutineToken Spawn(Task<runtimeTag, T> task) {
+    template <typename RuntimeTag, typename T>
+    CoroutineToken Spawn(Task<RuntimeTag, T> task) {
         auto handle = task.get_typed_handle();
         auto control_block = std::make_shared<CoroutineControlBlock>();
         control_block->root = task.release_handle();

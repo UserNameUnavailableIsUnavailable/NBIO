@@ -38,15 +38,14 @@
 #include <nbio/utility/Bitmap.hpp>
 #include <nbio/utility/Byte.hpp>
 #include <nbio/utility/Expected.hpp>
-#include <nbio/net/RdmaAcceptor.hpp>
+#include <nbio/net/RdmaAcceptService.hpp>
 #include <nbio/net/RdmaConnector.hpp>
+#include <nbio/net/RdmaConnectService.hpp>
 #include <nbio/net/RdmaResourceManager.hpp>
 #include <nbio/net/Address.hpp>
 #include <nbio/runtime/Runtime.hpp>
 #include <nbio/core/EpollMultiplexer.hpp>
 #include <nbio/nbio.hpp>
-#include <nbio/net/RdmaAcceptChannel.hpp>
-#include <nbio/net/RdmaConnectChannel.hpp>
 #include <nbio/net/RdmaSessionService.hpp>
 #include <nbio/core/URingMultiplexer.hpp>
 #include <algorithm>
@@ -163,10 +162,13 @@ nbio::Task<nbio::utility::expected<std::span<char>, std::string>> NextMessage(nb
     while (true) {
         auto incoming = co_await session.Receive();
         if (!incoming) [[unlikely]] {
-            co_return nbio::utility::unexpected(incoming.error());
+            co_return nbio::utility::unexpected(incoming.error().message());
         }
-        if (*incoming) {
-            co_return **incoming;
+        if (incoming->state == nbio::net::RdmaReceiveState::kData) {
+            co_return incoming->data;
+        }
+        if (incoming->state == nbio::net::RdmaReceiveState::kPeerClosed) {
+            co_return nbio::utility::unexpected(std::string{"the link was closed"});
         }
     }
 }
@@ -178,15 +180,15 @@ nbio::Task<nbio::utility::expected<void, std::string>> SendReport(nbio::net::Rdm
     while (true) {
         auto acquired = session.send_channel().Acquire();
         if (!acquired) [[unlikely]] {
-            co_return nbio::utility::unexpected(acquired.error());
+            co_return nbio::utility::unexpected(acquired.error().message());
         }
-        if (!*acquired) [[unlikely]] {
+        if (acquired->state == nbio::net::RdmaBufferState::kWouldBlock) [[unlikely]] {
             // Every chunk is in flight: one has to come back before this can go
             // out. Waiting for exactly one is what keeps this from waiting for the
             // payload as well.
             const auto reaped = co_await session.PollSend(1);
             if (!reaped) [[unlikely]] {
-                co_return nbio::utility::unexpected(reaped.error());
+                co_return nbio::utility::unexpected(reaped.error().message());
             }
             if (*reaped == 0 && session.send_channel().outstanding() != 0) [[unlikely]] {
                 co_return nbio::utility::unexpected(std::string{"the link stopped reporting completions"});
@@ -194,14 +196,14 @@ nbio::Task<nbio::utility::expected<void, std::string>> SendReport(nbio::net::Rdm
             continue;
         }
 
-        const std::span<char> chunk = **acquired;
+        const std::span<char> chunk = acquired->buffer;
         if (chunk.size() < message.size()) [[unlikely]] {
             co_return nbio::utility::unexpected(std::string{"a chunk cannot carry a report"});
         }
         std::memcpy(chunk.data(), message.data(), message.size());
         const auto posted = session.Send(chunk, message.size());
         if (!posted) [[unlikely]] {
-            co_return nbio::utility::unexpected(posted.error());
+            co_return nbio::utility::unexpected(posted.error().message());
         }
         co_return nbio::utility::expected<void, std::string>{};
     }
@@ -215,13 +217,16 @@ nbio::Task<nbio::utility::expected<void, std::string>> HarvestCredits(nbio::net:
     while (true) {
         auto incoming = co_await session.TryReceive();
         if (!incoming) [[unlikely]] {
-            co_return nbio::utility::unexpected(incoming.error());
+            co_return nbio::utility::unexpected(incoming.error().message());
         }
-        if (!*incoming) {
+        if (incoming->state == nbio::net::RdmaReceiveState::kWouldBlock) {
             co_return nbio::utility::expected<void, std::string>{};
         }
+        if (incoming->state == nbio::net::RdmaReceiveState::kPeerClosed) [[unlikely]] {
+            co_return nbio::utility::unexpected(std::string{"the link was closed"});
+        }
 
-        const std::span<char> message = **incoming;
+        const std::span<char> message = incoming->data;
         const auto size = message.size();
         const auto report = Decode(message);
         // Handed back before the report is acted on, so a chunk is never held
@@ -270,11 +275,11 @@ nbio::Task<nbio::utility::expected<void, std::string>> WaitForCredit(nbio::net::
 // ended up with. A posted send is not a sent one, so the clock stops when the last
 // completion comes back rather than when the last message is handed over --
 // otherwise this would measure how fast the loop can fill chunks.
-nbio::Task<void> Send(nbio::net::RdmaAcceptChannel& channel, const std::vector<char>& payload, std::size_t message,
+nbio::Task<void> Send(nbio::net::RdmaAcceptService& acceptor, const std::vector<char>& payload, std::size_t message,
                       Outcome& outcome, Progress& progress) {
-    auto admitted = co_await channel.accept();
+    auto admitted = co_await acceptor.Accept();
     if (!admitted) [[unlikely]] {
-        outcome.failure = "the connection was not admitted: " + admitted.error();
+        outcome.failure = "the connection was not admitted: " + admitted.error().message();
         co_return;
     }
     nbio::net::RdmaSessionService& session = **admitted;
@@ -315,10 +320,10 @@ nbio::Task<void> Send(nbio::net::RdmaAcceptChannel& channel, const std::vector<c
 
         auto acquired = session.send_channel().Acquire();
         if (!acquired) [[unlikely]] {
-            outcome.failure = "the send channel failed: " + acquired.error();
+            outcome.failure = "the send channel failed: " + acquired.error().message();
             co_return;
         }
-        if (!*acquired) {
+        if (acquired->state == nbio::net::RdmaBufferState::kWouldBlock) {
             // Every chunk is in flight, so one has to be retired before another
             // message can be built. This is the sender's own limit -- the tighter
             // of the two when the window is wider -- and it is what keeps the
@@ -326,7 +331,7 @@ nbio::Task<void> Send(nbio::net::RdmaAcceptChannel& channel, const std::vector<c
             const auto reaped = co_await session.PollSend(1);
             if (!reaped) [[unlikely]] {
                 outcome.failure = "the link stopped reporting completions after " + std::to_string(sent) +
-                                  " messages: " + reaped.error();
+                                  " messages: " + reaped.error().message();
                 co_return;
             }
             if (*reaped == 0 && session.send_channel().outstanding() != 0) [[unlikely]] {
@@ -336,12 +341,12 @@ nbio::Task<void> Send(nbio::net::RdmaAcceptChannel& channel, const std::vector<c
             continue;
         }
 
-        const std::span<char> chunk = **acquired;
+        const std::span<char> chunk = acquired->buffer;
         const auto take = std::min(chunk.size(), payload.size() - sent * message);
         std::memcpy(chunk.data(), payload.data() + sent * message, take);
         const auto posted = session.Send(chunk, take);
         if (!posted) [[unlikely]] {
-            outcome.failure = "sending message " + std::to_string(sent) + " failed: " + posted.error();
+            outcome.failure = "sending message " + std::to_string(sent) + " failed: " + posted.error().message();
             co_return;
         }
         ++sent;
@@ -354,7 +359,8 @@ nbio::Task<void> Send(nbio::net::RdmaAcceptChannel& channel, const std::vector<c
         const auto reaped = co_await session.PollSend();
         if (!reaped) [[unlikely]] {
             outcome.failure =
-                "the link stopped reporting completions after " + std::to_string(sent) + " messages: " + reaped.error();
+                "the link stopped reporting completions after " + std::to_string(sent) + " messages: " +
+                reaped.error().message();
             co_return;
         }
         if (*reaped == 0 && session.send_channel().outstanding() != 0) [[unlikely]] {
@@ -408,11 +414,11 @@ nbio::Task<void> Send(nbio::net::RdmaAcceptChannel& channel, const std::vector<c
 // own would be the same message twice. The clock runs from just after the
 // announcement to the last byte, which is the window in which the payload was on
 // the wire.
-nbio::Task<void> Receive(nbio::net::RdmaConnectChannel& channel, nbio::net::Address master, std::size_t chunk,
+nbio::Task<void> Receive(nbio::net::RdmaConnectService& connector, nbio::net::Address master, std::size_t chunk,
                          Outcome& outcome, Progress& progress) {
-    auto connected = co_await channel.Connect(master);
+    auto connected = co_await connector.Connect(master);
     if (!connected) [[unlikely]] {
-        outcome.failure = "the connection was not established: " + connected.error();
+        outcome.failure = "the connection was not established: " + connected.error().message();
         co_return;
     }
     nbio::net::RdmaSessionService& session = **connected;
@@ -467,7 +473,7 @@ nbio::Task<void> Receive(nbio::net::RdmaConnectChannel& channel, nbio::net::Addr
         // that this end has the buffer back to receive the next one into.
         if (const auto released = session.Release(message_bytes); !released) [[unlikely]]
         {
-            outcome.failure = "handing a message back failed: " + released.error();
+            outcome.failure = "handing a message back failed: " + released.error().message();
             co_return;
         }
         bytes += length;
@@ -498,7 +504,7 @@ nbio::Task<void> Receive(nbio::net::RdmaConnectChannel& channel, nbio::net::Addr
     // returns, so let the answer leave the device first.
     if (const auto settled = co_await session.PollSend(0); !settled) [[unlikely]]
     {
-        outcome.failure = "the answer was never reported as sent: " + settled.error();
+        outcome.failure = "the answer was never reported as sent: " + settled.error().message();
         co_return;
     }
 
@@ -709,12 +715,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    nbio::net::RdmaAcceptor acceptor(sending_resources);
-    const auto listening = acceptor.listen(nbio::net::Address::FromV4(address, listening_on));
-    if (!listening) [[unlikely]] {
-        std::printf("cannot listen on %s:%u: %s\n", address.c_str(), listening_on, listening.error().c_str());
-        return 1;
-    }
     const nbio::net::Address master = nbio::net::Address::FromV4(address, listening_on);
 
     std::printf("%zu bytes as %zu messages of %zu bytes, window of %zu, %s:%u on %s, %s\n", payload.size(),
@@ -734,8 +734,8 @@ int main(int argc, char* argv[]) {
     std::thread sender([&] {
         RunEngine(
             [&] {
-                nbio::net::RdmaAcceptChannel channel(acceptor, nbio::runtime::multiplexer(), nbio::runtime::scheduler());
-                nbio::run(Send(channel, payload, message, sent, progress));
+                nbio::net::RdmaAcceptService acceptor(sending_resources, master);
+                nbio::Run(Send(acceptor, payload, message, sent, progress));
             },
             multiplexer, sent);
         Print(sent, "sender", message);
@@ -743,9 +743,8 @@ int main(int argc, char* argv[]) {
     std::thread receiver([&] {
         RunEngine(
             [&] {
-                nbio::net::RdmaConnector connector(receiving_resources);
-                nbio::net::RdmaConnectChannel channel(connector, nbio::runtime::multiplexer(), nbio::runtime::scheduler());
-                nbio::run(Receive(channel, master, receiving, taken, progress));
+                nbio::net::RdmaConnectService connector(receiving_resources);
+                nbio::Run(Receive(connector, master, receiving, taken, progress));
             },
             multiplexer, taken);
         Print(taken, "receiver", message);

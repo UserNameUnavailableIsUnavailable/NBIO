@@ -8,8 +8,8 @@
 namespace nbio::net {
 TcpSessionService::TcpSessionService(nbio::net::TcpConnector connector)
     : connector_(std::move(connector)),
-    receive_channel_(connector_, nbio::runtime::multiplexer(), nbio::runtime::scheduler()),
-    send_channel_(connector_, nbio::runtime::multiplexer(), nbio::runtime::scheduler()),
+    receive_channel_(connector_, nbio::Runtime::multiplexer(), nbio::Runtime::scheduler()),
+    send_channel_(connector_, nbio::Runtime::multiplexer(), nbio::Runtime::scheduler()),
       id_(next_id_.fetch_add(1, std::memory_order_acq_rel)) {}
 
 TcpSessionService::~TcpSessionService() noexcept = default;
@@ -23,12 +23,12 @@ void TcpSessionService::Closee() noexcept {
     connector_.Close();
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> TcpSessionService::Receive(
+nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> TcpSessionService::Receive(
     std::span<char> buffer) {
     return receive_channel_.Receive(buffer);
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> TcpSessionService::Send(
+nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> TcpSessionService::Send(
     std::span<const char> buffer) {
     return send_channel_.Send(buffer);
 }

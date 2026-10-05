@@ -82,7 +82,7 @@ RdmaDeliverService::RdmaDeliverService(std::shared_ptr<RdmaSessionService> sessi
 
 RdmaDeliverService::~RdmaDeliverService() noexcept = default;
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::handshake() {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::handshake() {
     // Both ends say what they can take as soon as they are connected, so neither has to
     // know who goes first. The reader is not running yet, so the peer's own meta is
     // read here rather than by it.
@@ -107,7 +107,7 @@ nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Rdm
     // been read.
     if (auto released = session_->Release(incoming->packet); !released) [[unlikely]]
     {
-        co_return nbio::utility::unexpected(released.error());
+        co_return nbio::utility::unexpected(released.error().message());
     }
     taken_ = 1;
     // The peer's meta was its first packet, so it is also the first thing this end has
@@ -126,7 +126,7 @@ void RdmaDeliverService::Start() {
     reader_ = nbio::Spawn(Read(shared_from_this()));
 }
 
-nbio::async::Task<nbio::runtime, void> RdmaDeliverService::Read(std::shared_ptr<RdmaDeliverService> self) {
+nbio::async::Task<nbio::Runtime, void> RdmaDeliverService::Read(std::shared_ptr<RdmaDeliverService> self) {
     while (!self->ended_) {
         auto packet = co_await self->ReadPacket();
         if (!packet) [[unlikely]] {
@@ -164,17 +164,16 @@ void RdmaDeliverService::Stop() noexcept {
     ready_available_.NotifyAll();
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<RdmaDeliverService::Incoming, std::string>> RdmaDeliverService::ReadPacket() {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<RdmaDeliverService::Incoming, std::string>> RdmaDeliverService::ReadPacket() {
     auto incoming = co_await session_->Receive();
     if (!incoming) [[unlikely]] {
-        co_return nbio::utility::unexpected(incoming.error());
+        co_return nbio::utility::unexpected(incoming.error().message());
     }
-    if (!*incoming) [[unlikely]] {
-        // Nothing was waiting, which the session only reports once the link is over.
+    if (incoming->state != RdmaReceiveState::kData) [[unlikely]] {
         co_return nbio::utility::unexpected(std::string{"the connection is gone"});
     }
 
-    const std::span<char> packet = **incoming;
+    const std::span<char> packet = incoming->data;
     if (packet.size() < sizeof(nbio::net::RdmaHeader)) [[unlikely]] {
         // A completion shorter than a header is not a packet this protocol sent, and
         // guessing what it was is worse than stopping.
@@ -187,7 +186,7 @@ nbio::async::Task<nbio::runtime, nbio::utility::expected<RdmaDeliverService::Inc
         .packet = packet, .sequence = header.sequence, .type = header.type, .acknowledge = header.acknowledge};
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::Absorb(Incoming packet) {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::Absorb(Incoming packet) {
     taken_ = std::max(taken_, packet.sequence);
     if (packet.type & nbio::net::RdmaPacketType::kAck) {
         // What the peer has finished with, which is what lets this end send again.
@@ -203,7 +202,7 @@ nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Rdm
         // would slowly fill the window with packets that have nothing in them.
         if (auto released = session_->Release(packet.packet); !released) [[unlikely]]
         {
-            co_return nbio::utility::unexpected(released.error());
+            co_return nbio::utility::unexpected(released.error().message());
         }
         released_ = std::max(released_, packet.sequence);
         co_return nbio::utility::expected<void, std::string>{};
@@ -217,7 +216,7 @@ nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Rdm
     co_return nbio::utility::expected<void, std::string>{};
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::Send(std::span<const char> payload) {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::Send(std::span<const char> payload) {
     if (!handshaken_) [[unlikely]] {
         co_return nbio::utility::unexpected(std::string{"the handshake has not happened"});
     }
@@ -240,7 +239,7 @@ nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Rdm
     co_return nbio::utility::expected<void, std::string>{};
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::SendPacket(std::span<const char> payload,
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::SendPacket(std::span<const char> payload,
                                                                                           nbio::net::RdmaPacketType type) {
     if (auto room = co_await WaitForRoom(1); !room) [[unlikely]]
     {
@@ -253,15 +252,15 @@ nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Rdm
     while (chunk.empty()) {
         auto acquired = session_->send_channel().Acquire();
         if (!acquired) [[unlikely]] {
-            co_return nbio::utility::unexpected(acquired.error());
+            co_return nbio::utility::unexpected(acquired.error().message());
         }
-        if (*acquired) {
-            chunk = **acquired;
+        if (acquired->state == RdmaBufferState::kAvailable) {
+            chunk = acquired->buffer;
             break;
         }
         const auto reaped = co_await session_->PollSend(1);
         if (!reaped) [[unlikely]] {
-            co_return nbio::utility::unexpected(reaped.error());
+            co_return nbio::utility::unexpected(reaped.error().message());
         }
         if (*reaped == 0 && session_->send_channel().outstanding() != 0) [[unlikely]] {
             co_return nbio::utility::unexpected(std::string{"the link stopped reporting completions"});
@@ -287,20 +286,20 @@ nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Rdm
 
     if (auto posted = session_->Send(chunk, sizeof(header) + payload.size()); !posted) [[unlikely]]
     {
-        co_return nbio::utility::unexpected(posted.error());
+        co_return nbio::utility::unexpected(posted.error().message());
     }
     co_return nbio::utility::expected<void, std::string>{};
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaDeliverService::Receive() {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<RdmaPayloadResult, std::string>> RdmaDeliverService::Receive() {
     co_await ready_available_.wait([this] { return !ready_.empty() || ended_; });
     if (ready_.empty()) [[unlikely]] {
-        co_return nbio::utility::expected<std::optional<std::span<char>>, std::string>{std::nullopt};
+        co_return RdmaPayloadResult{.state = RdmaPayloadState::kEnded};
     }
-    co_return std::optional<std::span<char>>{ready_.front().payload};
+    co_return RdmaPayloadResult{.state = RdmaPayloadState::kAvailable, .payload = ready_.front().payload};
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::release(std::span<char> payload) {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::release(std::span<char> payload) {
     if (ready_.empty() || ready_.front().payload.data() != payload.data()) [[unlikely]] {
         co_return nbio::utility::unexpected(std::string{"a payload is released in the order it arrived"});
     }
@@ -311,7 +310,7 @@ nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> Rdm
     // acknowledgement that follows is a claim about.
     if (auto released = session_->Release(ChunkOf(held.payload, mine_)); !released) [[unlikely]]
     {
-        co_return nbio::utility::unexpected(released.error());
+        co_return nbio::utility::unexpected(released.error().message());
     }
     released_ = std::max(released_, held.sequence);
 
@@ -335,7 +334,7 @@ bool RdmaDeliverService::RoomFor(std::uint64_t packets) const noexcept {
     return sent_ - acknowledged_ + packets <= peer_.chunk_count;
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::WaitForRoom(std::uint64_t packets) {
+nbio::async::Task<nbio::Runtime, nbio::utility::expected<void, std::string>> RdmaDeliverService::WaitForRoom(std::uint64_t packets) {
     co_await room_.wait([this, packets] { return ended_ || RoomFor(packets); });
     if (ended_ && !RoomFor(packets)) [[unlikely]] {
         co_return nbio::utility::unexpected(std::string{"the link ended with the window full"});

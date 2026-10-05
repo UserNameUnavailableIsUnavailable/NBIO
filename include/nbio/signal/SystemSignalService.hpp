@@ -23,9 +23,9 @@ class SystemSignalService final {
 
     // Suspends until a signal is delivered, and installs the handlers if this is the
     // first wait on this thread.
-    nbio::async::Task<nbio::runtime, void> wait() const
+    nbio::async::Task<nbio::Runtime, void> wait() const
     {
-        co_return co_await nbio::runtime::signal_channel().wait();
+        co_return co_await nbio::Runtime::signal_channel().wait();
     }
 };
 }  // namespace nbio::signal

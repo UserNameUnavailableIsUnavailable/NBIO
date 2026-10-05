@@ -6,33 +6,41 @@
 #include <nbio/net/RdmaConnector.hpp>
 #include <nbio/net/RdmaResourceManager.hpp>
 #include <nbio/net/Address.hpp>
+#include <nbio/net/RdmaResult.hpp>
 #include <cstdint>
 #include <optional>
-#include <string>
 
 namespace nbio::net {
-// The listening end of an rdma link, and nothing else: the device, the protection
-// domain, the regions and the pools a connection is built from belong to the
-// resource manager it is given, and the connections themselves outlive it.
+enum class RdmaAcceptState {
+    kAccepted,
+    kWouldBlock,
+};
+
+struct RdmaAcceptResult {
+    RdmaAcceptState state{RdmaAcceptState::kWouldBlock};
+    std::optional<RdmaConnector> connection{};
+};
+
 class RdmaAcceptor {
    public:
+    using Handle = int;
     explicit RdmaAcceptor(RdmaResourceManager& resources);
     ~RdmaAcceptor() noexcept;
 
     RdmaAcceptor(const RdmaAcceptor&) = delete;
     RdmaAcceptor& operator=(const RdmaAcceptor&) = delete;
 
-    utility::expected<void, std::string> listen(net::Address address, int backlog = 4096) noexcept;
+    RdmaResult<void> Listen(net::Address address, int backlog = 4096) noexcept;
 
     // A connection that has finished its handshake, or nothing when nobody has
     // asked to be admitted.
-    utility::expected<std::optional<RdmaConnector>, std::string> Accept() noexcept;
+    RdmaResult<RdmaAcceptResult> Accept() noexcept;
 
-    utility::expected<void, std::string> NonBlocking(bool enabled = true) noexcept;
-    utility::expected<void, std::string> ReuseAddress(bool enabled = true) noexcept;
+    RdmaResult<void> NonBlocking(bool enabled = true) noexcept;
+    RdmaResult<void> ReuseAddress(bool enabled = true) noexcept;
 
-    std::uintptr_t native_handle() const noexcept {
-        return event_channel_ ? static_cast<std::uintptr_t>(event_channel_->fd) : static_cast<std::uintptr_t>(-1);
+    Handle event_channel_handle() const noexcept {
+        return event_channel_ ? static_cast<std::uintptr_t>(event_channel_->fd) : -1;
     }
 
    private:

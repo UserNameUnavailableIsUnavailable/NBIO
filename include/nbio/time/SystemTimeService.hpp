@@ -26,18 +26,18 @@ class SystemTimeService final {
 
     // Suspends until `duration` has passed since this call, or until `point`: the
     // same timer either way.
-    nbio::async::Task<nbio::runtime, void> sleep(std::chrono::steady_clock::duration duration) const {
+    nbio::async::Task<nbio::Runtime, void> sleep(std::chrono::steady_clock::duration duration) const {
         // Read now rather than when the task first runs, so a sleep of a duration means
         // the duration the caller asked for.
         return SleepUntil(std::chrono::steady_clock::now() + duration);
     }
 
-    nbio::async::Task<nbio::runtime, void> sleep(std::chrono::steady_clock::time_point point) const { return SleepUntil(point); }
+    nbio::async::Task<nbio::Runtime, void> sleep(std::chrono::steady_clock::time_point point) const { return SleepUntil(point); }
 
    private:
     // The sleep body, as a plain coroutine, and inline because it lives in a header.
-    static nbio::async::Task<nbio::runtime, void> SleepUntil(std::chrono::steady_clock::time_point point) {
-        co_await nbio::runtime::timer_channel().sleep(point);
+    static nbio::async::Task<nbio::Runtime, void> SleepUntil(std::chrono::steady_clock::time_point point) {
+        co_await nbio::Runtime::timer_channel().sleep(point);
     }
 };
 }  // namespace nbio::time

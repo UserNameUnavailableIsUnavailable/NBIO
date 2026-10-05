@@ -17,7 +17,7 @@ TcpAcceptChannel::TcpAcceptChannel(nbio::net::TcpAcceptor& acceptor, nbio::core:
                                                   static_cast<std::uintptr_t>(acceptor.native_handle()), multiplexer,
                                                   scheduler),
       acceptor_(acceptor) {
-    if (!acceptor_.IsValid()) {
+    if (!acceptor_.is_valid()) {
         throw std::logic_error("invalid acceptor");
     }
     // The listener has to be polled rather than waited on: an accept that blocks in
@@ -55,7 +55,7 @@ class AcceptAwaiter {
 
 // The accept body, as a plain coroutine whose channel is an ordinary parameter
 // (see the note on TcpAcceptChannel::accept).
-static nbio::async::Task<nbio::runtime, utility::expected<std::pair<net::TcpConnector, net::Address>, std::error_code>>
+static nbio::async::Task<nbio::Runtime, utility::expected<std::pair<net::TcpConnector, net::Address>, std::error_code>>
 AcceptOn(TcpAcceptChannel& channel) {
     auto result = co_await AcceptAwaiter(channel);
     if (result.status == OperationStatus::kError) {
@@ -64,7 +64,7 @@ AcceptOn(TcpAcceptChannel& channel) {
     // The socket the kernel accepted is connected to a peer, so the listener is what
     // turns it into the connection this end now has; the address is the one thing
     // about it that the accepted side did not already know.
-    co_return std::make_pair(channel.acceptor().adopt(std::move(result.socket)), std::move(result.address));
+    co_return std::make_pair(channel.acceptor().Adopt(std::move(result.socket)), std::move(result.address));
 }
 
 void TcpAcceptChannel::Prepare(async::Coroutine waiter, net::Communication* communication) {
@@ -95,7 +95,7 @@ void TcpAcceptChannel::Complete() {
     }
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::pair<net::TcpConnector, net::Address>, std::error_code>>
+nbio::async::Task<nbio::Runtime, utility::expected<std::pair<net::TcpConnector, net::Address>, std::error_code>>
 TcpAcceptChannel::Accept() {
     // Deliberately not a member coroutine: the implicit object parameter of a
     // member coroutine is laid out by the compiler in the same frame slot the

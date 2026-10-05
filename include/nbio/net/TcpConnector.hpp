@@ -33,7 +33,7 @@ class TcpConnector {
     utility::expected<void, std::error_code> Shutdown(TcpSocket::ShutdownHow how = TcpSocket::ShutdownHow::kBoth) noexcept;
 
     void Close() noexcept;
-    bool IsValid() const noexcept { return socket_.IsValid(); }
+    bool IsValid() const noexcept { return socket_.is_valid(); }
     std::uintptr_t native_handle() const noexcept { return socket_.native_handle(); }
 
     utility::expected<void, std::error_code> NonBlocking(bool toggle = true) noexcept;

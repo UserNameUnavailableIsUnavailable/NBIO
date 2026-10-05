@@ -18,7 +18,7 @@ utility::expected<TcpConnector, std::error_code> TcpAcceptor::Accept() noexcept 
     return TcpConnector(std::move(result->first));
 }
 
-TcpConnector TcpAcceptor::adopt(TcpSocket socket) const noexcept { return TcpConnector(std::move(socket)); }
+TcpConnector TcpAcceptor::Adopt(TcpSocket socket) const noexcept { return TcpConnector(std::move(socket)); }
 
 utility::expected<void, std::error_code> TcpAcceptor::ReuseAddress(bool toggle) noexcept { return socket_.ReuseAddress(toggle); }
 
@@ -26,5 +26,5 @@ utility::expected<void, std::error_code> TcpAcceptor::NonBlocking(bool toggle) n
 
 void TcpAcceptor::Close() noexcept { socket_.Close(); }
 
-bool TcpAcceptor::IsValid() const noexcept { return socket_.IsValid(); }
+bool TcpAcceptor::is_valid() const noexcept { return socket_.is_valid(); }
 }  // namespace nbio::net

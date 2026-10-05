@@ -24,7 +24,7 @@ class TcpSendChannel final : public nbio::core::Channel<TcpSendChannel> {
                             nbio::async::Scheduler& scheduler);
     ~TcpSendChannel() noexcept;
 
-    nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> Send(std::span<const char> buffer);
+    nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> Send(std::span<const char> buffer);
 
     // The operation the backend performs lives in the payload; the backend fills
     // the transmissions and asks the channel to reap them.

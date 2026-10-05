@@ -44,7 +44,7 @@ class TcpSocket {
 
     std::uintptr_t native_handle() const noexcept { return handle_; }
     void swap(TcpSocket& other) noexcept { std::swap(handle_, other.handle_); }
-    bool IsValid() const noexcept { return handle_ != kInvalidHandle; }
+    bool is_valid() const noexcept { return handle_ != kInvalidHandle; }
 
     utility::expected<void, std::error_code> Bind(const Address& local) noexcept;
     utility::expected<void, std::error_code> Listen(int backlog = 4096) noexcept;

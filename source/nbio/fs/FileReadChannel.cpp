@@ -76,7 +76,7 @@ void FileReadChannel::Complete() {
     }
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> FileReadChannel::read(std::span<char> buffer) {
+nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> FileReadChannel::read(std::span<char> buffer) {
     auto result = co_await ReadAwaiter{*this, buffer};
     if (result.status == OperationStatus::kError) {
         co_return utility::unexpected<std::error_code>(std::move(result.error_code));

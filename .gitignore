@@ -1,6 +1,6 @@
 build/
 vcpkg_installed/
-/dependencies/tl-expected/
+CMakeUserPresets.json
 .cache/
 .DS_Store
 *.log

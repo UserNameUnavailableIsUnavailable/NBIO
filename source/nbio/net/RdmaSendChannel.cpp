@@ -55,11 +55,11 @@ class RdmaSendPollAwaiter {
         return true;
     }
 
-    nbio::utility::expected<std::size_t, std::string> await_resume() const {
+    RdmaResult<std::size_t> await_resume() const {
         auto& job = channel_.job();
-        if (!job.error.empty()) [[unlikely]] {
+        if (job.error) [[unlikely]] {
             // Consumed, so that a later poll on the same channel starts clean.
-            return nbio::utility::unexpected(std::exchange(job.error, std::string{}));
+            return nbio::utility::unexpected(std::exchange(job.error, {}));
         }
         return channel_.completed() - before_;
     }
@@ -74,7 +74,7 @@ class RdmaSendPollAwaiter {
 RdmaSendChannel::RdmaSendChannel(nbio::net::RdmaConnector& connection, nbio::core::Multiplexer& multiplexer,
                                  nbio::async::Scheduler& scheduler)
     : nbio::core::Channel<RdmaSendChannel>(nbio::core::ChannelType::kRdmaSend,
-                                                 static_cast<std::uintptr_t>(connection.native_handle()), multiplexer,
+                                                 static_cast<std::uintptr_t>(connection.completion_channel_handle()), multiplexer,
                                                  scheduler),
       connection_(connection) {
     // Registered on the first arm(): nothing to watch until a poll is Parked.
@@ -82,7 +82,7 @@ RdmaSendChannel::RdmaSendChannel(nbio::net::RdmaConnector& connection, nbio::cor
 
 RdmaSendChannel::~RdmaSendChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::size_t, std::string>> RdmaSendChannel::Poll(std::size_t count) {
+nbio::async::Task<nbio::Runtime, RdmaResult<std::size_t>> RdmaSendChannel::Poll(std::size_t count) {
     co_return co_await detail::RdmaSendPollAwaiter{*this, count};
 }
 
@@ -101,7 +101,7 @@ void RdmaSendChannel::Complete() {
     if (auto reaped = connection_.PollSend(0); reaped) [[likely]]
     {
         completed_ += *reaped;
-        if (connection_.outstanding_sends() > job().target && !connection_.peer_closed() && !connection_.failed()) {
+        if (connection_.outstanding_sends() > job().target && !connection_.is_peer_closed() && !connection_.failed()) {
             Arm();
             return;
         }

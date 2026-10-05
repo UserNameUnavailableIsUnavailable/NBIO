@@ -14,41 +14,29 @@
 #include <nbio/time/SystemTimerChannel.hpp>
 
 namespace nbio {
-// The nbio runtime for one thread, and the runtime tag that nbio::async
-// tasks are parameterized on.
-//
-// It owns everything the backend needs: the multiplexer, the scheduler built on
-// its idle hook, and the standing channels plus the resources they bind to.
-// Static accessors hand those out for whichever engine is installed on the
-// calling thread. nbio::async never sees any of this -- it asks the tag
-// for a scheduler and nothing more.
-//
-// Member order matters twice. The multiplexer is declared first so the
-// scheduler's idle hook can capture it, and the channels come last so they are
-// destroyed first: every channel unregisters itself through
-// multiplexer_.DeleteChannel() in its destructor, which requires a live
-// multiplexer. Each channel references its resource, so each resource is
-// declared before (and destroyed after) the channel bound to it.
-class runtime {
+class Runtime {
+    struct Init {
+        std::unique_ptr<core::Multiplexer> multiplexer;
+    };
    public:
-    runtime(const runtime&) = delete;
-    runtime& operator=(const runtime&) = delete;
-    runtime(runtime&&) = delete;
-    runtime& operator=(runtime&&) = delete;
-
-    ~runtime() noexcept;
+    explicit Runtime(Init init);
+    Runtime(const Runtime&) = delete;
+    Runtime& operator=(const Runtime&) = delete;
+    Runtime(Runtime&&) = delete;
+    Runtime& operator=(Runtime&&) = delete;
 
     // Installs a backend on the current thread. Throws if one is already
-    // installed there.
+    // installed in the current thread.
     static void initialize(std::unique_ptr<core::Multiplexer> multiplexer);
 
-    // Whether a backend has been installed on this thread.
+    ~Runtime() noexcept;
+
     static bool is_initialized() { return static_cast<bool>(runtime_); }
 
     // The engine current on this thread. Throws when installed() is false.
-    static runtime& instance();
+    static Runtime& instance();
 
-    // ---- what nbio::async asks of a runtime tag ----
+    // ---- what nbio::async asks of a Runtime tag ----
     static nbio::async::Scheduler& scheduler();
     static core::Multiplexer& multiplexer();
 
@@ -65,7 +53,6 @@ class runtime {
     static signal::SystemSignalChannel& signal_channel();
 
    private:
-    explicit runtime(std::unique_ptr<core::Multiplexer> multiplexer);
 
     static std::function<void(bool)> make_idle_hook(core::Multiplexer& multiplexer);
 
@@ -78,7 +65,7 @@ class runtime {
     std::unique_ptr<nbio::signal::SystemSignal> signal_;
     std::unique_ptr<signal::SystemSignalChannel> signal_channel_;
 
-    static thread_local std::unique_ptr<runtime> runtime_;
+    static thread_local std::unique_ptr<Runtime> runtime_;
 };
 
 // Creates the platform default backend

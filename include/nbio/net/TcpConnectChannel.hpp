@@ -25,10 +25,10 @@ class TcpConnectChannel final : public nbio::core::Channel<TcpConnectChannel> {
 
     ~TcpConnectChannel() noexcept;
 
-    nbio::async::Task<nbio::runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> Connect(
+    nbio::async::Task<nbio::Runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> Connect(
         const nbio::net::Address& target);
 
-    nbio::async::Task<nbio::runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> Connect(
+    nbio::async::Task<nbio::Runtime, utility::expected<nbio::net::TcpConnector, std::error_code>> Connect(
         const nbio::net::Address& source, const nbio::net::Address& target);
 
     Payload& Submit();

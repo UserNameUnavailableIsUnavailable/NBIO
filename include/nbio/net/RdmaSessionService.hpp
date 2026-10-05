@@ -2,10 +2,8 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
 #include <nbio/net/RdmaConnector.hpp>
+#include <nbio/net/RdmaResult.hpp>
 #include <nbio/runtime/Runtime.hpp>
-#include <optional>
-#include <span>
-#include <string>
 
 #include "RdmaReceiveChannel.hpp"
 #include "RdmaSendChannel.hpp"
@@ -26,17 +24,17 @@ class RdmaSessionService final {
 
     // Hands one acquired send chunk to the device and returns; PollSend() is
     // what waits for the completions that hand the chunks back.
-    nbio::utility::expected<void, std::string> Send(std::span<char> chunk, std::size_t length) noexcept;
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::size_t, std::string>> PollSend(std::size_t count = 0);
+    RdmaResult<void> Send(std::span<char> chunk, std::size_t length) noexcept;
+    nbio::async::Task<nbio::Runtime, RdmaResult<std::size_t>> PollSend(std::size_t count = 0);
 
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> Receive();
+    nbio::async::Task<nbio::Runtime, RdmaResult<RdmaReceiveResult>> Receive();
 
     // A message that has already arrived, without waiting for one: nothing when
     // none is ready. For a coroutine that has something else to do meanwhile.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> TryReceive();
+    nbio::async::Task<nbio::Runtime, RdmaResult<RdmaReceiveResult>> TryReceive();
 
     // Hands a received chunk back for the next message.
-    nbio::utility::expected<void, std::string> Release(std::span<char> chunk) noexcept;
+    RdmaResult<void> Release(std::span<char> chunk) noexcept;
 
     nbio::net::RdmaConnector& connection() noexcept;
     const nbio::net::RdmaConnector& connection() const noexcept;

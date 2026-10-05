@@ -10,17 +10,19 @@
 #include <nbio/core/EpollMultiplexer.hpp>
 
 namespace nbio {
-thread_local std::unique_ptr<runtime> runtime::runtime_{};
+thread_local std::unique_ptr<Runtime> Runtime::runtime_{};
 
-runtime::runtime(std::unique_ptr<core::Multiplexer> multiplexer)
-    : multiplexer_(std::move(multiplexer)),
+Runtime::Runtime(Init init)
+    : multiplexer_(std::move(init.multiplexer)),
       scheduler_(make_idle_hook(*multiplexer_)),
       timer_channel_(timer_, *multiplexer_, scheduler_),
-      notify_channel_(notifier_, *multiplexer_, scheduler_) {}
+      notify_channel_(notifier_, *multiplexer_, scheduler_)
+{
+}
 
-runtime::~runtime() noexcept = default;
+Runtime::~Runtime() noexcept = default;
 
-std::function<void(bool)> runtime::make_idle_hook(core::Multiplexer& multiplexer) {
+std::function<void(bool)> Runtime::make_idle_hook(core::Multiplexer& multiplexer) {
     // The scheduler Parks here whenever it has nothing to run: the multiplexer
     // *is* the idle coroutine.
     return [&multiplexer](bool blocking) {
@@ -32,29 +34,30 @@ std::function<void(bool)> runtime::make_idle_hook(core::Multiplexer& multiplexer
     };
 }
 
-void runtime::initialize(std::unique_ptr<core::Multiplexer> multiplexer) {
+void Runtime::initialize(std::unique_ptr<core::Multiplexer> multiplexer) {
     if (is_initialized()) {
         throw std::runtime_error("nbio backend already initialized on this thread");
     }
-    runtime_ = std::unique_ptr<runtime>(new runtime(std::move(multiplexer)));
+    Init init{.multiplexer = std::move(multiplexer)};
+    runtime_ = std::make_unique<Runtime>(std::move(init));
 }
 
-runtime& runtime::instance() {
+Runtime& Runtime::instance() {
     if (!is_initialized()) {
         initialize(std::make_unique<core::EpollMultiplexer>());
     }
     return *runtime_;
 }
 
-nbio::async::Scheduler& runtime::scheduler() { return instance().scheduler_; }
+nbio::async::Scheduler& Runtime::scheduler() { return instance().scheduler_; }
 
-core::Multiplexer& runtime::multiplexer() { return *instance().multiplexer_; }
+core::Multiplexer& Runtime::multiplexer() { return *instance().multiplexer_; }
 
-notification::EventNotifyChannel& runtime::notify_channel() { return instance().notify_channel_; }
+notification::EventNotifyChannel& Runtime::notify_channel() { return instance().notify_channel_; }
 
-time::SystemTimerChannel& runtime::timer_channel() { return instance().timer_channel_; }
+time::SystemTimerChannel& Runtime::timer_channel() { return instance().timer_channel_; }
 
-signal::SystemSignalChannel& runtime::signal_channel() {
+signal::SystemSignalChannel& Runtime::signal_channel() {
     auto& self = instance();
     if (!self.signal_channel_) {
         self.signal_ = std::make_unique<nbio::signal::SystemSignal>();

@@ -8,23 +8,23 @@ RdmaSessionService::RdmaSessionService(nbio::net::RdmaConnector connection, nbio
       send_channel_(connection_, multiplexer, scheduler),
       receive_channel_(connection_, multiplexer, scheduler) {}
 
-nbio::utility::expected<void, std::string> RdmaSessionService::Send(std::span<char> chunk, std::size_t length) noexcept {
+RdmaResult<void> RdmaSessionService::Send(std::span<char> chunk, std::size_t length) noexcept {
     return send_channel_.Send(chunk, length);
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::size_t, std::string>> RdmaSessionService::PollSend(std::size_t count) {
+nbio::async::Task<nbio::Runtime, RdmaResult<std::size_t>> RdmaSessionService::PollSend(std::size_t count) {
     co_return co_await send_channel_.Poll(count);
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaSessionService::Receive() {
+nbio::async::Task<nbio::Runtime, RdmaResult<RdmaReceiveResult>> RdmaSessionService::Receive() {
     co_return co_await receive_channel_.Receive();
 }
 
-nbio::async::Task<nbio::runtime, nbio::utility::expected<std::optional<std::span<char>>, std::string>> RdmaSessionService::TryReceive() {
+nbio::async::Task<nbio::Runtime, RdmaResult<RdmaReceiveResult>> RdmaSessionService::TryReceive() {
     co_return co_await receive_channel_.TryReceive();
 }
 
-nbio::utility::expected<void, std::string> RdmaSessionService::Release(std::span<char> chunk) noexcept {
+RdmaResult<void> RdmaSessionService::Release(std::span<char> chunk) noexcept {
     return receive_channel_.Release(chunk);
 }
 

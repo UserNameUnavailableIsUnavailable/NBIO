@@ -31,12 +31,12 @@ class TcpConnectService final {
     ~TcpConnectService() noexcept = default;
 
     // A connection to `target`, and the session that will carry it.
-    nbio::async::Task<nbio::runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> Connect(
+    nbio::async::Task<nbio::Runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> Connect(
         const nbio::net::Address& target);
 
     // The same, with the local address pinned first: a caller that cares which end it
     // comes from says so, and one that does not leaves it to the kernel.
-    nbio::async::Task<nbio::runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> Connect(
+    nbio::async::Task<nbio::Runtime, utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> Connect(
         const nbio::net::Address& source, const nbio::net::Address& target);
 
    private:

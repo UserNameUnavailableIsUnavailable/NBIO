@@ -5,10 +5,11 @@
 #include <nbio/async/Scheduler.hpp>
 #include <nbio/async/Task.hpp>
 #include <nbio/net/RdmaConnector.hpp>
+#include <nbio/net/RdmaResult.hpp>
 #include <nbio/net/Payload.hpp>
 #include <nbio/runtime/Runtime.hpp>
 #include <span>
-#include <string>
+#include <system_error>
 #include <utility>
 
 #include <nbio/core/Channel.hpp>
@@ -25,7 +26,7 @@ class RdmaSendChannel final : public nbio::core::Channel<RdmaSendChannel> {
         // Completions reaped since the poll began.
         std::size_t completions{0};
         // Why the stream stopped completing anything, empty while it has not.
-        std::string error{};
+        std::error_code error{};
     };
 
     RdmaSendChannel(nbio::net::RdmaConnector& connection, nbio::core::Multiplexer& multiplexer,
@@ -36,12 +37,12 @@ class RdmaSendChannel final : public nbio::core::Channel<RdmaSendChannel> {
     // take as many as the stream will give, fill them, and send them -- the
     // device carries them in parallel instead of one per round trip. An empty
     // answer means every chunk is already in flight.
-    nbio::utility::expected<std::optional<std::span<char>>, std::string> Acquire() noexcept { return connection_.acquire(); }
+    RdmaResult<RdmaBufferResult> Acquire() noexcept { return connection_.Acquire(); }
 
     // Hands one acquired chunk to the device. Returns immediately: the chunk
     // belongs to the device until a completion retires it, which poll() reports.
-    nbio::utility::expected<void, std::string> Send(std::span<char> chunk, std::size_t length) noexcept {
-        return connection_.send(chunk, length);
+    RdmaResult<void> Send(std::span<char> chunk, std::size_t length) noexcept {
+        return connection_.Send(chunk, length);
     }
 
     // Waits until at least `count` of the sends in flight when it was called have
@@ -49,7 +50,7 @@ class RdmaSendChannel final : public nbio::core::Channel<RdmaSendChannel> {
     // every chunk has been handed back. Answers how many completed while it
     // waited, which is also how many chunks became available, or why the stream
     // gave up completing them.
-    nbio::async::Task<nbio::runtime, nbio::utility::expected<std::size_t, std::string>> Poll(std::size_t count = 0);
+    nbio::async::Task<nbio::Runtime, RdmaResult<std::size_t>> Poll(std::size_t count = 0);
 
     // Sends posted and not yet reaped.
     std::size_t outstanding() const noexcept { return connection_.outstanding_sends(); }

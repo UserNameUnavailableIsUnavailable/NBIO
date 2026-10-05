@@ -27,7 +27,9 @@ if(NBIO_ENABLE_RDMA)
         RdmaConnector.cpp
         RdmaAcceptor.cpp
         RdmaAcceptChannel.cpp
+        RdmaAcceptService.cpp
         RdmaConnectChannel.cpp
+        RdmaConnectService.cpp
         RdmaDeliverService.cpp
         RdmaReceiveChannel.cpp
         RdmaSendChannel.cpp

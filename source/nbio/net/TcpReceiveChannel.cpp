@@ -83,7 +83,7 @@ void TcpReceiveChannel::Complete() {
     }
 }
 
-nbio::async::Task<nbio::runtime, utility::expected<std::size_t, std::error_code>> TcpReceiveChannel::Receive(
+nbio::async::Task<nbio::Runtime, utility::expected<std::size_t, std::error_code>> TcpReceiveChannel::Receive(
     std::span<char> buffer) {
     auto result = co_await ReceiveAwaiter{*this, buffer};
     if (result.status == OperationStatus::kError) {
