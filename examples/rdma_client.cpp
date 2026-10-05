@@ -1,17 +1,15 @@
+#include <CLI/CLI.hpp>
 #include <nbio/async.hpp>
-#include <nbio/async/task.hpp>
-#include <nbio/net/address.hpp>
-#include <nbio/net/rdma_connect_service.hpp>
-#include <nbio/net/rdma_resource_manager.hpp>
+#include <nbio/net.hpp>
 
 #include <cstring>
 #include <iostream>
 #include <string_view>
 #include <utility>
 
-nbio::async::Task<void> RunClient() {
-    nbio::net::RdmaResourceManager resources{"siw0"};
-    const auto address = nbio::net::Address::FromV4("192.168.0.101", 6666);
+nbio::async::Task<void> RunClient(std::string_view device, std::string_view ip, std::uint16_t port) {
+    nbio::net::RdmaResourceManager resources{device};
+    const auto address = nbio::net::Address::FromV4(ip, port);
     nbio::net::RdmaConnectService connector{resources};
     auto connected = co_await connector.Connect(address);
     if (!connected) {
@@ -41,4 +39,15 @@ nbio::async::Task<void> RunClient() {
     std::cout << "Sent: " << message << '\n';
 }
 
-int main() { nbio::async::Run(RunClient()); }
+int main(int argc, char* argv[])
+{
+    CLI::App app{"RDMA Client"};
+    std::string device;
+    std::string ip;
+    std::uint16_t port;
+    app.add_option("--device", device, "RDMA device name");
+    app.add_option("--ip", ip, "RDMA server IP address");
+    app.add_option("--port", port, "RDMA server port");
+    CLI11_PARSE(app, argc, argv);
+    nbio::async::Run(RunClient(device, ip, port));
+}

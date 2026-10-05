@@ -1,17 +1,10 @@
 #if defined(__linux__)
 
 #include <CLI/CLI.hpp>
-#include <nbio/utility/Byte.hpp>
-#include <nbio/utility/expected.hpp>
-#include <nbio/net/RdmaAcceptService.hpp>
-#include <nbio/net/rdma_connect_service.hpp>
-#include <nbio/net/RdmaHeader.hpp>
-#include <nbio/net/rdma_resource_manager.hpp>
-#include <nbio/net/address.hpp>
-#include <nbio/async/runtime.hpp>
-#include <nbio/core/types.hpp>
-#include <nbio/net/RdmaDeliverService.hpp>
-#include <nbio/core/types.hpp>
+#include <nbio/async.hpp>
+#include <nbio/core.hpp>
+#include <nbio/net.hpp>
+#include <nbio/utility.hpp>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -101,7 +94,7 @@ std::unique_ptr<nbio::core::Multiplexer> MakeMultiplexer(const std::string& name
 template <typename Body>
 void RunEngine(Body body, const std::string& multiplexer, Outcome& outcome) {
     try {
-        nbio::Runtime::Initialize(MakeMultiplexer(multiplexer));
+        nbio::async::Runtime::Initialize(MakeMultiplexer(multiplexer));
         body();
     } catch (const std::exception& error) {
         outcome.failure = error.what();

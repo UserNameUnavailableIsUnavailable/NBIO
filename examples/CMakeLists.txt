@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
+find_package(CLI11 CONFIG REQUIRED)
+
 function(add_example name)
     add_executable(
         ${name}
@@ -9,6 +11,7 @@ function(add_example name)
         ${name}
         PRIVATE
         nbio
+        CLI11::CLI11
     )
 endfunction()
 

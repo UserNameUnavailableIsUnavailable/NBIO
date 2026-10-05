@@ -1,44 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Benchmarks are executables rather than tests: they need an RDMA device and they
-# print numbers instead of asserting. Built only when KVSTORE_BUILD_BENCHMARKS is
-# on, so nothing in the default build or in ctest depends on them.
 find_package(CLI11 CONFIG REQUIRED)
 
-add_executable(
-    RdmaFileBenchmark
-    RdmaFileBenchmark.cpp
-)
+function(add_benchmark target)
+    add_executable(${target} ${target}.cpp)
+    target_link_libraries(${target} PRIVATE nbio CLI11::CLI11)
+endfunction()
 
-target_link_libraries(
-    RdmaFileBenchmark
-    PRIVATE
-    nbio
-    CLI11::CLI11
-)
-
-# The delivery layer's own end-to-end check rather than a measurement: it moves a small
-# payload each way and verifies every byte of it.
-add_executable(
-    RdmaDeliverTest
-    RdmaDeliverTest.cpp
-)
-
-target_link_libraries(
-    RdmaDeliverTest
-    PRIVATE
-    nbio
-    CLI11::CLI11
-)
-
-add_executable(
-    RdmaDeliverBenchmark
-    RdmaDeliverBenchmark.cpp
-)
-
-target_link_libraries(
-    RdmaDeliverBenchmark
-    PRIVATE
-    nbio
-    CLI11::CLI11
-)
+add_benchmark(rdma_deliver_benchmark)

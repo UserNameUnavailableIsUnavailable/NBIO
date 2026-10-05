@@ -22,9 +22,13 @@
       "description": "Enable NBIO's Linux global allocation pool",
       "supports": "linux"
     },
+    "examples": {
+      "description": "Build the example applications",
+      "dependencies": [ "cli11" ]
+    },
     "testing": {
       "description": "Build the test suite",
-      "dependencies": [ "gtest" ]
+      "dependencies": [ "gtest", "cli11" ]
     },
     "benchmark": {
       "description": "Build the benchmark suite",
