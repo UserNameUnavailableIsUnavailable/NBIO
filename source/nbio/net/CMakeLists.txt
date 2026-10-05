@@ -3,17 +3,17 @@ cmake_minimum_required(VERSION 3.20)
 target_sources(
     nbio
     PRIVATE
-    Address.cpp
-    TcpSocket.cpp
-    TcpAcceptor.cpp
-    TcpConnector.cpp
-    TcpAcceptChannel.cpp
-    TcpAcceptService.cpp
-    TcpConnectChannel.cpp
-    TcpConnectService.cpp
-    TcpReceiveChannel.cpp
-    TcpSendChannel.cpp
-    TcpSessionService.cpp
+    address.cpp
+    tcp_socket.cpp
+    tcp_acceptor.cpp
+    tcp_connector.cpp
+    tcp_accept_channel.cpp
+    tcp_accept_service.cpp
+    tcp_connect_channel.cpp
+    tcp_connect_service.cpp
+    tcp_receive_channel.cpp
+    tcp_send_channel.cpp
+    tcp_session_service.cpp
 )
 
 if(NBIO_ENABLE_RDMA)
@@ -23,17 +23,17 @@ if(NBIO_ENABLE_RDMA)
     target_sources(
         nbio
         PRIVATE
-        RdmaResourceManager.cpp
-        RdmaConnector.cpp
-        RdmaAcceptor.cpp
-        RdmaAcceptChannel.cpp
-        RdmaAcceptService.cpp
-        RdmaConnectChannel.cpp
-        RdmaConnectService.cpp
-        RdmaDeliverService.cpp
-        RdmaReceiveChannel.cpp
-        RdmaSendChannel.cpp
-        RdmaSessionService.cpp
+        rdma_resource_manager.cpp
+        rdma_connector.cpp
+        rdma_acceptor.cpp
+        rdma_accept_channel.cpp
+        rdma_accept_service.cpp
+        rdma_connect_channel.cpp
+        rdma_connect_service.cpp
+        rdma_deliver_service.cpp
+        rdma_receive_channel.cpp
+        rdma_send_channel.cpp
+        rdma_session_service.cpp
     )
     target_link_libraries(nbio PUBLIC PkgConfig::RDMACM_PC PkgConfig::IBVERBS_PC)
 endif()

@@ -35,18 +35,18 @@
 #include <unistd.h>
 
 #include <CLI/CLI.hpp>
-#include <nbio/utility/Bitmap.hpp>
+#include <nbio/utility/bitmap.hpp>
 #include <nbio/utility/Byte.hpp>
-#include <nbio/utility/Expected.hpp>
+#include <nbio/utility/expected.hpp>
 #include <nbio/net/RdmaAcceptService.hpp>
 #include <nbio/net/RdmaConnector.hpp>
-#include <nbio/net/RdmaConnectService.hpp>
-#include <nbio/net/RdmaResourceManager.hpp>
-#include <nbio/net/Address.hpp>
-#include <nbio/async/Runtime.hpp>
-#include <nbio/core/Types.hpp>
+#include <nbio/net/rdma_connect_service.hpp>
+#include <nbio/net/rdma_resource_manager.hpp>
+#include <nbio/net/address.hpp>
+#include <nbio/async/runtime.hpp>
+#include <nbio/core/types.hpp>
 #include <nbio/net/RdmaSessionService.hpp>
-#include <nbio/core/Types.hpp>
+#include <nbio/core/types.hpp>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -537,12 +537,12 @@ std::uint16_t FreePort() {
     return port;
 }
 
-std::unique_ptr<nbio::Core::Multiplexer> MakeMultiplexer(const std::string& name) {
+std::unique_ptr<nbio::core::Multiplexer> MakeMultiplexer(const std::string& name) {
     if (name == "epoll") {
-        return std::make_unique<nbio::Core::EpollMultiplexer>();
+        return std::make_unique<nbio::core::EpollMultiplexer>();
     }
     if (name == "io_uring") {
-        return std::make_unique<nbio::Core::URingMultiplexer>();
+        return std::make_unique<nbio::core::URingMultiplexer>();
     }
     throw std::invalid_argument("--multiplexer must be 'epoll' or 'io_uring'");
 }
@@ -554,7 +554,7 @@ std::unique_ptr<nbio::Core::Multiplexer> MakeMultiplexer(const std::string& name
 template <typename Body>
 void RunEngine(Body body, const std::string& multiplexer, Outcome& outcome) {
     try {
-        nbio::Runtime::initialize(MakeMultiplexer(multiplexer));
+        nbio::Runtime::Initialize(MakeMultiplexer(multiplexer));
         body();
     } catch (const std::exception& error) {
         outcome.failure = error.what();

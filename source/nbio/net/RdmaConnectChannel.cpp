@@ -1,6 +1,6 @@
-#include <nbio/net/RdmaConnectChannel.hpp>
+#include <nbio/net/RdmaConnectchannel.hpp>
 
-#include <nbio/async/Coroutine.hpp>
+#include <nbio/async/coroutine.hpp>
 #include <cstdint>
 #include <utility>
 
@@ -38,9 +38,9 @@ class RdmaConnectAwaiter {
 };
 }  // namespace detail
 
-RdmaConnectChannel::RdmaConnectChannel(nbio::net::RdmaConnector& connector, nbio::Core::Multiplexer& multiplexer,
+RdmaConnectChannel::RdmaConnectChannel(nbio::net::RdmaConnector& connector, nbio::core::Multiplexer& multiplexer,
                                        nbio::async::Scheduler& scheduler)
-    : nbio::Core::Channel<RdmaConnectChannel>(nbio::Core::ChannelType::kRdmaConnect,
+    : nbio::core::Channel<RdmaConnectChannel>(nbio::core::ChannelType::kRdmaConnect,
                                                     static_cast<std::uintptr_t>(connector.event_channel_handle()), multiplexer,
                                                     scheduler),
       connector_(connector) {

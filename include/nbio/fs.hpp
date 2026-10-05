@@ -5,5 +5,5 @@ class FileView;
 class FileStream;
 } // namespace nbio::fs
 
-#include <nbio/fs/FileView.hpp>
-#include <nbio/fs/FileStream.hpp>
+#include <nbio/fs/file_view.hpp>
+#include <nbio/fs/file_stream.hpp>

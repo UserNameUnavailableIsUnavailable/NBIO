@@ -1,8 +1,8 @@
 #include <nbio/async.hpp>
-#include <nbio/async/Task.hpp>
-#include <nbio/net/Address.hpp>
-#include <nbio/net/RdmaConnectService.hpp>
-#include <nbio/net/RdmaResourceManager.hpp>
+#include <nbio/async/task.hpp>
+#include <nbio/net/address.hpp>
+#include <nbio/net/rdma_connect_service.hpp>
+#include <nbio/net/rdma_resource_manager.hpp>
 
 #include <cstring>
 #include <iostream>

@@ -19,7 +19,7 @@ vcpkg_cmake_configure(
 
 vcpkg_cmake_install()
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
-vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/NBIO)
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/nbio)
 vcpkg_copy_pdbs()
 
 file(INSTALL "${NBIO_SOURCE_PATH}/README.md" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 target_sources(
     nbio
     PRIVATE
-    Coroutine.cpp
-    Scheduler.cpp
-    Runtime.cpp
+    coroutine.cpp
+    scheduler.cpp
+    runtime.cpp
 )

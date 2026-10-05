@@ -3,6 +3,6 @@ cmake_minimum_required(VERSION 3.20)
 target_sources(
     nbio
     PRIVATE
-    SystemTimer.cpp
-    SystemTimerChannel.cpp
+    system_timer.cpp
+    system_timer_channel.cpp
 )

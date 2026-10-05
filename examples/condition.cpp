@@ -1,8 +1,8 @@
 #include <nbio/async.hpp>
-#include <nbio/async/Task.hpp>
-#include <nbio/notification/ConditionVariable.hpp>
-#include <nbio/async/Runtime.hpp>
-#include <nbio/core/URingMultiplexer.hpp>
+#include <nbio/async/task.hpp>
+#include <nbio/notification/condition_variable.hpp>
+#include <nbio/async/runtime.hpp>
+#include <nbio/core/uring_multiplexer.hpp>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -19,8 +19,8 @@ nbio::async::Task<void> wait_condition(nbio::notification::ConditionVariable& cv
 }
 
 int main() {
-    auto multiplexer = std::make_unique<nbio::Core::URingMultiplexer>();
-    nbio::async::Runtime::initialize(std::move(multiplexer));
+    auto multiplexer = std::make_unique<nbio::core::URingMultiplexer>();
+    nbio::async::Runtime::Initialize(std::move(multiplexer));
     nbio::notification::ConditionVariable condition;
     std::future<void> task = std::async([&condition] {
         std::this_thread::sleep_for(std::chrono::seconds(1));

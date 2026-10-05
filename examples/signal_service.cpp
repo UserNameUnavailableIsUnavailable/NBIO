@@ -1,7 +1,7 @@
-#include <nbio/async/Scheduler.hpp>
-#include <nbio/signal/SystemSignal.hpp>
-#include <nbio/core/EpollMultiplexer.hpp>
-#include <nbio/signal/SystemSignalChannel.hpp>
+#include <nbio/async/scheduler.hpp>
+#include <nbio/signal/system_signal.hpp>
+#include <nbio/core/epoll_multiplexer.hpp>
+#include <nbio/signal/system_signal_channel.hpp>
 #include <iostream>
 #include <thread>
 
@@ -13,7 +13,7 @@ using namespace nbio;
 
 int main(int argc, char* argv[]) {
     {
-        nbio::Core::EpollMultiplexer mux;
+        nbio::core::EpollMultiplexer mux;
         async::Scheduler sched([](bool) {});
         // creating SystemSignalChannel will intercept Signals
         signal::SystemSignal Signal;
