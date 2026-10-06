@@ -1,9 +1,9 @@
 #pragma once
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/net/rdma_connector.hpp>
 #include <nbio/net/rdma_result.hpp>
-#include <nbio/async/runtime.hpp>
 
 #include "rdma_receive_channel.hpp"
 #include "rdma_send_channel.hpp"

@@ -1,10 +1,10 @@
 #pragma once
 
+#include <memory>
 #include <nbio/async/task.hpp>
-#include <nbio/utility/expected.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_session_service.hpp>
-#include <memory>
+#include <nbio/utility/expected.hpp>
 #include <system_error>
 
 namespace nbio::net {
@@ -20,8 +20,7 @@ namespace nbio::net {
 // makes will be read and written from.
 class TcpConnectService final {
    public:
-    explicit TcpConnectService(
-        nbio::net::Address::Family family = nbio::net::Address::Family::kIPv4);
+    explicit TcpConnectService(nbio::net::Address::Family family = nbio::net::Address::Family::kIPv4);
 
     TcpConnectService(const TcpConnectService&) = delete;
     TcpConnectService& operator=(const TcpConnectService&) = delete;
@@ -43,7 +42,3 @@ class TcpConnectService final {
     nbio::net::Address::Family family_;
 };
 }  // namespace nbio::net
-
-
-
-

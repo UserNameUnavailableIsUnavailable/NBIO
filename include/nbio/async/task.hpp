@@ -4,15 +4,13 @@
 #include <concepts>
 #include <coroutine>
 #include <exception>
+#include <nbio/async/coroutine.hpp>
+#include <nbio/async/scheduler.hpp>
 #include <utility>
 #include <variant>
 
-#include <nbio/async/coroutine.hpp>
-#include <nbio/async/scheduler.hpp>
-
 namespace nbio::async {
 class Scheduler;
-class Runtime;
 
 // IMPORTANT: this must only queue the frame for reclamation. It must NEVER
 // destroy the frame: it is called from final_suspend, where the FinalAwaiter
@@ -83,10 +81,6 @@ template <typename T>
 class Task {
    public:
     struct promise_type : Promise {
-        // Names the runtime that owns this frame. The awaiter compares it with
-        // the caller's, so a cross-runtime co_await is a compile error rather
-        // than the callee running on the wrong thread.
-
         std::variant<std::monostate, T, std::exception_ptr> result_;
 
         Task get_return_object() noexcept { return Task{std::coroutine_handle<promise_type>::from_promise(*this)}; }
@@ -150,7 +144,6 @@ class Task {
 
         bool await_ready() noexcept { return !callee_ || callee_.done(); }
 
-        // Only a caller belonging to the same runtime may await this task.
         template <typename CallerPromise>
         std::coroutine_handle<> await_suspend(std::coroutine_handle<CallerPromise> caller) noexcept {
             auto& callee = callee_.promise();
@@ -181,7 +174,6 @@ template <>
 class Task<void> {
    public:
     struct promise_type : Promise {
-
         std::exception_ptr error_;
 
         Task get_return_object() noexcept { return Task{std::coroutine_handle<promise_type>::from_promise(*this)}; }

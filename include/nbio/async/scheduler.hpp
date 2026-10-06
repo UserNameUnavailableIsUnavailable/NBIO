@@ -13,6 +13,7 @@
 namespace nbio::async {
 template <typename T>
 class Task;
+struct CoroutineControlBlock;
 
 // Drives the coroutines of one thread, and destroys the frames that have reached a
 // terminal state. One thread owns a Scheduler: Spawn(), submit() and cancel() all come
@@ -29,7 +30,7 @@ class Scheduler {
     // into the registry, and that registry entry is the only strong reference to it: the
     // token this returns observes and never owns.
     template <typename T>
-    CoroutineToken Spawn(Task<T> task) {
+    CoroutineJoinHandle Spawn(Task<T> task) {
         auto handle = task.get_typed_handle();
         auto control_block = std::make_shared<CoroutineControlBlock>();
         control_block->root = task.release_handle();
@@ -40,10 +41,10 @@ class Scheduler {
         roots_.push_back(control_block);
         control_block->index = std::prev(roots_.end());
         ready_.push_back(Coroutine{handle, control_block});
-        return CoroutineToken{control_block};
+        return CoroutineJoinHandle{control_block};
     }
 
-    void Submit(Coroutine pending) { ready_.push_back(std::move(pending)); }
+    void Submit(Coroutine pending);
 
     // Takes a block out of the registry.
     void Reclaim(const CoroutineControlBlock& ccb) noexcept;

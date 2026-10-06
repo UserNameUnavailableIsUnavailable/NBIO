@@ -3,14 +3,14 @@
 
 #include <rdma/rdma_cma.h>
 
-#include <nbio/utility/bitmap.hpp>
-#include <nbio/net/rdma_result.hpp>
-#include <nbio/utility/expected.hpp>
-#include <nbio/net/rdma_resource_manager.hpp>
-#include <nbio/net/address.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <nbio/net/address.hpp>
+#include <nbio/net/rdma_resource_manager.hpp>
+#include <nbio/net/rdma_result.hpp>
+#include <nbio/utility/bitmap.hpp>
+#include <nbio/utility/expected.hpp>
 #include <optional>
 #include <span>
 #include <system_error>
@@ -199,4 +199,3 @@ class RdmaConnector {
 }  // namespace nbio::net
 
 #endif  // defined(NBIO_ENABLE_RDMA) && defined(__linux__)
-

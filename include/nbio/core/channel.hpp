@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/core/multiplexer.hpp>
-#include <cstdint>
 
 #include "types.hpp"
 
@@ -75,5 +75,3 @@ class Channel : public ChannelBase {
     auto Submit() const { return static_cast<const C*>(this)->Submit(); }
 };
 }  // namespace nbio::core
-
-

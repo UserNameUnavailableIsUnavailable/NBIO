@@ -1,7 +1,7 @@
-#include <nbio/async/scheduler.hpp>
-#include <nbio/signal.hpp>
-#include <nbio/core/epoll_multiplexer.hpp>
 #include <iostream>
+#include <nbio/async/scheduler.hpp>
+#include <nbio/core/epoll_multiplexer.hpp>
+#include <nbio/signal.hpp>
 #include <thread>
 
 using namespace nbio;
@@ -24,5 +24,3 @@ int main(int argc, char* argv[]) {
     std::cout << "The process is exitting normally" << std::endl;
     return 0;
 }
-
-

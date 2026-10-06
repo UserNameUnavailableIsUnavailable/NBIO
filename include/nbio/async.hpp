@@ -1,10 +1,10 @@
 #pragma once
 
-#include <nbio/async/task.hpp>
-#include <nbio/async/runtime.hpp>
 #include <cstddef>
 #include <exception>
 #include <memory>
+#include <nbio/runtime/daemon.hpp>
+#include <nbio/async/task.hpp>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -22,11 +22,14 @@ inline Task<void> GuardException(Task<void> main, std::exception_ptr& exception)
         exception = std::current_exception();
     }
 }
-}  // namespace detail
+inline ::nbio::async::Scheduler& scheduler() {
+    return ::nbio::runtime::Daemon::scheduler();
+}
+} // namespace detail
 
 inline void Run(Task<void> main) {
     std::exception_ptr error;
-    auto& scheduler = Runtime::scheduler();
+    auto& scheduler = detail::scheduler();
     scheduler.Spawn(detail::GuardException(std::move(main), error));
     while (!scheduler.is_empty()) {
         scheduler.Run();
@@ -36,16 +39,14 @@ inline void Run(Task<void> main) {
     }
 }
 
-// Fire-and-forget: takes ownership of a root coroutine on the tag's runtime.
 template <typename T>
-CoroutineToken Spawn(Task<T> task) {
-    return Runtime::scheduler().Spawn(std::move(task));
+CoroutineJoinHandle Spawn(Task<T> task) {
+    return detail::scheduler().Spawn(std::move(task));
 }
 
 // Backend-provided behaviour (sleep, Signal waiting, net, IO) lives in the
-// concrete backend namespace, e.g. nbio::async::Runtime.
+// concrete backend namespace, e.g. nbio::runtime::Daemon.
 
-// ============================================================================
 // Structured concurrency combinators.
 //
 // A plain `co_await task` is sequential (the caller transfers into the callee).
@@ -59,7 +60,6 @@ CoroutineToken Spawn(Task<T> task) {
 // In every case a cancelGuard cancels the remaining tasks when the combinator
 // leaves scope -- normal return, thrown exception, or the combinator itself
 // being cancelled -- so no Spawned child is ever orphaned.
-// ============================================================================
 
 // Policy for how WhenAll reacts to a child throwing.
 enum class WhenAllPolicy {
@@ -88,7 +88,7 @@ struct ResultSlot {
 // cancels every held token on destruction. cancel() on a finished token is a
 // no-op, so this is safe on all exit paths (normal / throw / cancellation).
 struct CancelGuard {
-    std::vector<CoroutineToken> tokens;
+    std::vector<CoroutineJoinHandle> tokens;
     CancelGuard() = default;
     CancelGuard(const CancelGuard&) = delete;
     CancelGuard& operator=(const CancelGuard&) = delete;
@@ -99,7 +99,6 @@ struct CancelGuard {
     }
 };
 
-// ---- WhenAll -------------------------------------------------------------
 struct AllState {
     Scheduler* scheduler{nullptr};
     // The awaiting frame plus its control block. The scheduler resumes by
@@ -182,8 +181,7 @@ struct AnyAwaiter {
 };
 
 template <typename T>
-Task<void> RunAny(Task<T> task, ResultSlot<T>& slot, std::shared_ptr<AnyState> state,
-                               std::size_t index) {
+Task<void> RunAny(Task<T> task, ResultSlot<T>& slot, std::shared_ptr<AnyState> state, std::size_t index) {
     try {
         if constexpr (std::is_void_v<T>) {
             co_await std::move(task);
@@ -217,7 +215,7 @@ Task<std::tuple<detail::WhenValue<Ts>...>> WhenAll(Task<Ts>... tasks) {
     std::tuple<detail::ResultSlot<Ts>...> slots;
 
     auto state = std::make_shared<detail::AllState>();
-    state->scheduler = &Runtime::scheduler();
+    state->scheduler = &detail::scheduler();
     state->remaining = sizeof...(Ts);
     state->abort_on_error = (Policy == WhenAllPolicy::kAbortOnError);
 
@@ -241,8 +239,7 @@ Task<std::tuple<detail::WhenValue<Ts>...>> WhenAll(Task<Ts>... tasks) {
 }
 
 // Awaits all tasks concurrently; resumes as soon as the FIRST finishes and
-// returns its result as a variant (void -> std::monostate). The remaining tasks
-// are cancelled. If the winner threw, that exception is rethrown.
+// returns its result as a variant (void -> std::monostate). The remaining tasks are cancelled. If the winner threw, that exception is rethrown.
 template <typename... Ts>
 Task<std::variant<detail::WhenValue<Ts>...>> WhenAny(Task<Ts>... tasks) {
     static_assert(sizeof...(Ts) > 0, "WhenAny requires at least one task");
@@ -251,7 +248,7 @@ Task<std::variant<detail::WhenValue<Ts>...>> WhenAny(Task<Ts>... tasks) {
     std::tuple<detail::ResultSlot<Ts>...> slots;
 
     auto state = std::make_shared<detail::AnyState>();
-    state->scheduler = &Runtime::scheduler();
+    state->scheduler = &detail::scheduler();
 
     detail::CancelGuard guard;  // cancels the losers on scope exit
     guard.tokens.reserve(sizeof...(Ts));

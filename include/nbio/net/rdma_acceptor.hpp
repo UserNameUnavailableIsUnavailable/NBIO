@@ -2,12 +2,12 @@
 
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
-#include <nbio/utility/expected.hpp>
+#include <cstdint>
+#include <nbio/net/address.hpp>
 #include <nbio/net/rdma_connector.hpp>
 #include <nbio/net/rdma_resource_manager.hpp>
-#include <nbio/net/address.hpp>
 #include <nbio/net/rdma_result.hpp>
-#include <cstdint>
+#include <nbio/utility/expected.hpp>
 #include <optional>
 
 namespace nbio::net {
@@ -52,4 +52,3 @@ class RdmaAcceptor {
 }  // namespace nbio::net
 
 #endif  // defined(NBIO_ENABLE_RDMA) && defined(__linux__)
-

@@ -17,4 +17,3 @@ Defer<F> MakeDefer(F&& func) {
     return Defer<F>(std::forward<F>(func));
 }
 }  // namespace nbio::utility
-

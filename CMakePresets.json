@@ -6,7 +6,12 @@
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "NBIO_ENABLE_IO_URING": "ON",
+        "NBIO_ENABLE_RDMA": "ON",
+        "BUILD_EXAMPLES": "ON",
+        "BUILD_TESTING": "ON",
+        "BUILD_BENCHMARKS": "ON"
       }
     }
   ]

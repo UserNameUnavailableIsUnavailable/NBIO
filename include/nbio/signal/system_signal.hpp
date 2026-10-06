@@ -3,9 +3,8 @@
 #include <cstdint>
 #include <list>
 #include <mutex>
-#include <system_error>
-
 #include <nbio/utility/expected.hpp>
+#include <system_error>
 
 namespace nbio::signal {
 class SystemSignal {
@@ -27,5 +26,3 @@ class SystemSignal {
     std::list<std::uintptr_t>::iterator it_;    // iterator for the current handle in the list
 };
 }  // namespace nbio::signal
-
-

@@ -1,8 +1,7 @@
 #include <CLI/CLI.hpp>
+#include <iostream>
 #include <nbio/async.hpp>
 #include <nbio/net.hpp>
-
-#include <iostream>
 #include <string_view>
 #include <utility>
 

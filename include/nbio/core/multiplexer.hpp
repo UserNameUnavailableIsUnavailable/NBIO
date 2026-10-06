@@ -22,5 +22,3 @@ class Multiplexer {
     MultiplexerType type_;
 };
 }  // namespace nbio::core
-
-

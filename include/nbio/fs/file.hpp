@@ -2,10 +2,9 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <nbio/utility/expected.hpp>
 #include <span>
 #include <system_error>
-
-#include <nbio/utility/expected.hpp>
 
 namespace nbio::fs {
 enum class FileMode : std::uint32_t {
@@ -66,4 +65,3 @@ class File {
     FileMode mode_;
 };
 }  // namespace nbio::fs
-

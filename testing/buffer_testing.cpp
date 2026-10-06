@@ -9,8 +9,8 @@
 // then grows.
 #include <gtest/gtest.h>
 
-#include <nbio/utility/buffer.hpp>
 #include <cstddef>
+#include <nbio/utility/buffer.hpp>
 #include <string>
 
 namespace {
@@ -77,5 +77,3 @@ TEST(Buffer, ABufferAtItsCeilingKeepsWhatItHolds) {
     Append(buffer, "12345678");
     EXPECT_EQ(buffer.string_view(), Fill(12, 'a') + "12345678");
 }
-
-

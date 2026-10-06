@@ -2,16 +2,15 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
 #include <nbio/async/coroutine.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
+#include <nbio/core/channel.hpp>
+#include <nbio/net/payload.hpp>
 #include <nbio/net/rdma_connector.hpp>
 #include <nbio/net/rdma_result.hpp>
-#include <nbio/net/payload.hpp>
-#include <nbio/async/runtime.hpp>
 #include <system_error>
 #include <utility>
-
-#include <nbio/core/channel.hpp>
 
 namespace nbio::net {
 class RdmaReceiveChannel final : public nbio::core::Channel<RdmaReceiveChannel> {

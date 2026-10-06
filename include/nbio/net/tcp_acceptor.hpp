@@ -1,13 +1,12 @@
 #pragma once
 
 #include <cstdint>
-#include <system_error>
-#include <utility>
-
-#include <nbio/utility/expected.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_connector.hpp>
 #include <nbio/net/tcp_socket.hpp>
+#include <nbio/utility/expected.hpp>
+#include <system_error>
+#include <utility>
 
 namespace nbio::net {
 class TcpAcceptor {

@@ -1,16 +1,16 @@
 #pragma once
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
-#include <nbio/async/coroutine.hpp>
-#include <nbio/async/task.hpp>
-#include <nbio/utility/expected.hpp>
-#include <nbio/net/rdma_header.hpp>
-#include <nbio/net/rdma_result.hpp>
-#include <nbio/notification/condition_variable.hpp>
-#include <nbio/net/rdma_session_service.hpp>
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <nbio/async/coroutine.hpp>
+#include <nbio/async/task.hpp>
+#include <nbio/net/rdma_header.hpp>
+#include <nbio/net/rdma_result.hpp>
+#include <nbio/net/rdma_session_service.hpp>
+#include <nbio/notification/condition_variable.hpp>
+#include <nbio/utility/expected.hpp>
 #include <span>
 #include <string>
 
@@ -24,8 +24,7 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
         // What one packet's payload can be, which is what a caller's payload is cut
         // at on the way out.
         std::uint64_t payload_size() const noexcept {
-            return chunk_size > sizeof(nbio::net::RdmaHeader) ? chunk_size - sizeof(nbio::net::RdmaHeader)
-                                                                     : 0;
+            return chunk_size > sizeof(nbio::net::RdmaHeader) ? chunk_size - sizeof(nbio::net::RdmaHeader) : 0;
         }
     };
 
@@ -105,7 +104,7 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     // one thing sent through here that is not a payload, and its numbers mean the same
     // thing they mean on every other packet.
     nbio::async::Task<nbio::utility::expected<void, std::string>> SendPacket(std::span<const char> payload,
-                                                                          nbio::net::RdmaPacketType type);
+                                                                             nbio::net::RdmaPacketType type);
 
     // Waits until the packets already in flight leave room for `packets` more.
     nbio::async::Task<nbio::utility::expected<void, std::string>> WaitForRoom(std::uint64_t packets);
@@ -121,7 +120,7 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     // What start() Spawned the reader as, so that stop() can cancel it. Cancelling is
     // what lets the scheduler destroy the frame, and destroying the frame is what
     // releases the reference that frame holds to this service.
-    nbio::async::CoroutineToken reader_{};
+    nbio::async::CoroutineJoinHandle reader_{};
 
     std::shared_ptr<RdmaSessionService> session_;
     Layout mine_;

@@ -1,8 +1,8 @@
 #pragma once
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/net/rdma_connector.hpp>
-#include <nbio/async/runtime.hpp>
 #include <optional>
 #include <span>
 #include <string>

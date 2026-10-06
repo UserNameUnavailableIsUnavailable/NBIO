@@ -1,24 +1,22 @@
 #if defined(__linux__)
 
 #include <CLI/CLI.hpp>
-#include <nbio/async.hpp>
-#include <nbio/core.hpp>
-#include <nbio/net.hpp>
-#include <nbio/utility.hpp>
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <nbio/async.hpp>
+#include <nbio/core.hpp>
+#include <nbio/net.hpp>
+#include <nbio/utility.hpp>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace {
-
-
 
 using Clock = std::chrono::steady_clock;
 
@@ -94,7 +92,7 @@ std::unique_ptr<nbio::core::Multiplexer> MakeMultiplexer(const std::string& name
 template <typename Body>
 void RunEngine(Body body, const std::string& multiplexer, Outcome& outcome) {
     try {
-        nbio::async::Runtime::Initialize(MakeMultiplexer(multiplexer));
+        nbio::runtime::Daemon::Initialize(MakeMultiplexer(multiplexer));
         body();
     } catch (const std::exception& error) {
         outcome.failure = error.what();
@@ -103,7 +101,8 @@ void RunEngine(Body body, const std::string& multiplexer, Outcome& outcome) {
     }
 }
 
-nbio::async::Task<nbio::utility::expected<std::span<char>, std::string>> ReceiveOne(nbio::net::RdmaDeliverService& service) {
+nbio::async::Task<nbio::utility::expected<std::span<char>, std::string>> ReceiveOne(
+    nbio::net::RdmaDeliverService& service) {
     auto incoming = co_await service.Receive();
     if (!incoming) [[unlikely]] {
         co_return nbio::utility::unexpected(incoming.error());
@@ -114,8 +113,8 @@ nbio::async::Task<nbio::utility::expected<std::span<char>, std::string>> Receive
     co_return incoming->payload;
 }
 
-nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaAcceptService& acceptor, nbio::net::RdmaDeliverService::Layout layout,
-                                 Outcome& outcome) {
+nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaAcceptService& acceptor,
+                                        nbio::net::RdmaDeliverService::Layout layout, Outcome& outcome) {
     auto admitted = co_await acceptor.Accept();
     if (!admitted) [[unlikely]] {
         outcome.failure = "accept failed: " + admitted.error().message();
@@ -190,9 +189,8 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaAcceptService& acceptor, 
 }
 
 nbio::async::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector, const nbio::net::Address* source,
-                                 const nbio::net::Address& peer,
-                                 nbio::net::RdmaDeliverService::Layout layout, std::size_t message_bytes,
-                                 std::size_t messages, Outcome& outcome) {
+                                        const nbio::net::Address& peer, nbio::net::RdmaDeliverService::Layout layout,
+                                        std::size_t message_bytes, std::size_t messages, Outcome& outcome) {
     auto connected = source != nullptr ? co_await connector.Connect(*source, peer) : co_await connector.Connect(peer);
     if (!connected) [[unlikely]] {
         outcome.failure = "connect failed: " + connected.error().message();
@@ -321,7 +319,7 @@ int main(int argc, char* argv[]) {
     }
 
     const nbio::net::RdmaDeliverService::Layout layout{.chunk_size = receive_chunk,
-                                                  .chunk_count = nbio::net::RdmaConnector::kReceiveChunks};
+                                                       .chunk_count = nbio::net::RdmaConnector::kReceiveChunks};
     const auto default_message_bytes =
         std::min<std::size_t>(kPreferredDefaultMessageBytes, static_cast<std::size_t>(layout.payload_size()));
     if (message_bytes_option->count() == 0) {
@@ -357,10 +355,12 @@ int main(int argc, char* argv[]) {
             [&] {
                 nbio::net::RdmaConnectService connector(resources);
                 if (local_ip.empty()) {
-                    nbio::async::Run(ClientBenchmark(connector, nullptr, peer, layout, message_bytes, messages, outcome));
+                    nbio::async::Run(
+                        ClientBenchmark(connector, nullptr, peer, layout, message_bytes, messages, outcome));
                 } else {
                     const auto source = nbio::net::Address::FromV4(local_ip, 0);
-                    nbio::async::Run(ClientBenchmark(connector, &source, peer, layout, message_bytes, messages, outcome));
+                    nbio::async::Run(
+                        ClientBenchmark(connector, &source, peer, layout, message_bytes, messages, outcome));
                 }
             },
             multiplexer, outcome);
@@ -380,7 +380,3 @@ int main() {
 }
 
 #endif  // defined(__linux__)
-
-
-
-

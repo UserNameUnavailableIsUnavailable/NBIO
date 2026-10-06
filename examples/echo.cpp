@@ -1,12 +1,12 @@
-#include <nbio/async.hpp>
-#include <nbio/async/task.hpp>
-#include <nbio/utility/buffer.hpp>
-#include <nbio/net/address.hpp>
-#include <nbio/net/tcp_socket.hpp>
-#include <nbio/net/tcp_accept_service.hpp>
-#include <nbio/async/runtime.hpp>
 #include <iostream>
 #include <memory>
+#include <nbio/async.hpp>
+#include <nbio/runtime/daemon.hpp>
+#include <nbio/async/task.hpp>
+#include <nbio/net/address.hpp>
+#include <nbio/net/tcp_accept_service.hpp>
+#include <nbio/net/tcp_socket.hpp>
+#include <nbio/utility/buffer.hpp>
 
 using namespace nbio;
 
@@ -61,5 +61,3 @@ nbio::async::Task<void> Service() {
 }
 
 int main() { nbio::async::Run(Service()); }
-
-

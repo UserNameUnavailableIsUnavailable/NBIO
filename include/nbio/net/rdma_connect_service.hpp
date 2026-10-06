@@ -2,13 +2,13 @@
 
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
+#include <memory>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/rdma_resource_manager.hpp>
 #include <nbio/net/rdma_result.hpp>
 #include <nbio/net/rdma_session_service.hpp>
-#include <nbio/async/runtime.hpp>
-#include <memory>
 
 namespace nbio::net {
 class RdmaConnectService final {
@@ -24,7 +24,7 @@ class RdmaConnectService final {
 
     nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> Connect(const Address& peer);
     nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> Connect(const Address& local,
-                                                                                             const Address& peer);
+                                                                               const Address& peer);
 
    private:
     RdmaResourceManager& resources_;

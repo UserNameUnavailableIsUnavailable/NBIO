@@ -41,7 +41,6 @@ endif()
 
 option(NBIO_ENABLE_IO_URING "Enable the Linux io_uring multiplexer" ${NBIO_IO_URING_DEFAULT})
 option(NBIO_ENABLE_RDMA "Enable Linux RDMA support" ${NBIO_RDMA_DEFAULT})
-option(NBIO_ENABLE_CUSTOM_MEMORY_POOLING "Enable NBIO's Linux global allocation pool" ${NBIO_MEMORY_POOLING_DEFAULT})
 option(NBIO_BUILD_EXAMPLES "Build NBIO examples" OFF)
 option(BUILD_TESTING "Build NBIO tests" ${NBIO_TESTING_DEFAULT})
 option(BUILD_BENCHMARKS "Build NBIO benchmarks" ${NBIO_BENCHMARK_DEFAULT})
@@ -53,7 +52,7 @@ if((NBIO_ENABLE_IO_URING OR NBIO_ENABLE_RDMA) AND NOT CMAKE_SYSTEM_NAME STREQUAL
     message(FATAL_ERROR "io_uring and RDMA support are available only on Linux")
 endif()
 
-add_subdirectory(source/nbio)
+add_subdirectory(source)
 
 find_package(tl-expected CONFIG REQUIRED)
 target_link_libraries(nbio PUBLIC tl::expected)
@@ -72,18 +71,6 @@ endif()
 if(NBIO_ENABLE_RDMA)
     message(STATUS "rdma enabled")
     target_compile_definitions(nbio PUBLIC NBIO_ENABLE_RDMA=1)
-endif()
-
-if(NBIO_ENABLE_CUSTOM_MEMORY_POOLING)
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        message(FATAL_ERROR "Custom memory pooling is currently available only on Linux")
-    endif()
-    target_compile_definitions(nbio PUBLIC CUSTOM_MEMORY_POOLING=1)
-    target_link_options(nbio INTERFACE
-        "-Wl,--wrap=malloc"
-        "-Wl,--wrap=calloc"
-        "-Wl,--wrap=realloc"
-        "-Wl,--wrap=free")
 endif()
 
 if(BUILD_EXAMPLES)

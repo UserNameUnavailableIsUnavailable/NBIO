@@ -90,4 +90,3 @@ class BitmapMemory {
     std::vector<std::uint64_t> in_use_;  // one bit per chunk
 };
 }  // namespace nbio::utility
-

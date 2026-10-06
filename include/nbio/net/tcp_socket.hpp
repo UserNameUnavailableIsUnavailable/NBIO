@@ -1,7 +1,7 @@
 #pragma once
 
-#include <nbio/utility/expected.hpp>
 #include <nbio/net/address.hpp>
+#include <nbio/utility/expected.hpp>
 #include <span>
 #include <system_error>
 #include <utility>

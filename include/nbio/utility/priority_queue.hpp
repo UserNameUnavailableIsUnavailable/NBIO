@@ -70,5 +70,3 @@ class PriorityQueue {
     Compare comparator_;
 };
 }  // namespace nbio::core
-
-

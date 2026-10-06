@@ -7,23 +7,24 @@
 // them is answered and that the order a stream needs is kept.
 #include <gtest/gtest.h>
 
-#include <nbio/async.hpp>
-#include <nbio/async/coroutine.hpp>
-#include <nbio/net/address.hpp>
-#include <nbio/net/tcp_socket.hpp>
-#include <nbio/net/tcp_accept_service.hpp>
-#include <nbio/async/runtime.hpp>
-#include <nbio/net/tcp_session_service.hpp>
-#include <nbio/core/uring_multiplexer.hpp>
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <nbio/async.hpp>
+#include <nbio/async/coroutine.hpp>
+#include <nbio/runtime/daemon.hpp>
+#include <nbio/core/uring_multiplexer.hpp>
+#include <nbio/net/address.hpp>
+#include <nbio/net/tcp_accept_service.hpp>
+#include <nbio/net/tcp_session_service.hpp>
+#include <nbio/net/tcp_socket.hpp>
 #include <span>
 #include <string>
 #include <vector>
-#include "nbio/time/system_time_service.hpp"
+
+#include "nbio/time/timer_service.hpp"
 
 namespace {
 constexpr std::size_t kWriters = 4;
@@ -34,9 +35,7 @@ constexpr std::size_t kChunkBytes = 512;
 // listener is closed when the test ends.
 constexpr std::uint16_t kTestPort = 34567;
 
-nbio::net::Address TestAddress() {
-    return nbio::net::Address::FromV4("127.0.0.1", kTestPort);
-}
+nbio::net::Address TestAddress() { return nbio::net::Address::FromV4("127.0.0.1", kTestPort); }
 
 // The bytes one writer's chunk turns into, so the test and the writer agree on what
 // was sent without either of them counting by hand.
@@ -44,8 +43,7 @@ std::string ChunkBytes(std::size_t writer, std::size_t index) {
     return "chunk-" + std::to_string(writer) + ":" + std::to_string(index) + ";";
 }
 
-nbio::async::Task<void> send_chunks(std::shared_ptr<nbio::net::TcpSessionService> session,
-                                         std::size_t writer) {
+nbio::async::Task<void> send_chunks(std::shared_ptr<nbio::net::TcpSessionService> session, std::size_t writer) {
     for (std::size_t index = 0; index < kChunks; ++index) {
         const std::string bytes = ChunkBytes(writer, index);
         (void)co_await session->Send(std::span<const char>{bytes.data(), bytes.size()});
@@ -53,7 +51,7 @@ nbio::async::Task<void> send_chunks(std::shared_ptr<nbio::net::TcpSessionService
 }
 
 nbio::async::Task<void> receive_chunk(std::shared_ptr<nbio::net::TcpSessionService> session,
-                                           std::vector<std::string>& into, std::size_t index, std::size_t size) {
+                                      std::vector<std::string>& into, std::size_t index, std::size_t size) {
     std::string bytes(size, '\0');
     const auto received = co_await session->Receive(std::span<char>{bytes.data(), bytes.size()});
     bytes.resize(received.value_or(0));
@@ -62,8 +60,7 @@ nbio::async::Task<void> receive_chunk(std::shared_ptr<nbio::net::TcpSessionServi
 
 // Connects `count` clients, which sit in the listener's backlog until somebody
 // accepts them.
-std::vector<nbio::net::TcpSocket> connect_clients(const nbio::net::Address& address,
-                                                         std::size_t count) {
+std::vector<nbio::net::TcpSocket> connect_clients(const nbio::net::Address& address, std::size_t count) {
     std::vector<nbio::net::TcpSocket> clients;
     for (std::size_t index = 0; index < count; ++index) {
         auto socket = nbio::net::TcpSocket{address.family(), nbio::net::TcpSocket::Type::kStream};
@@ -81,12 +78,12 @@ nbio::async::Task<void> accept_one(nbio::net::TcpAcceptService& acceptor, std::s
 }
 
 nbio::async::Task<void> accept_all(nbio::net::TcpAcceptService& acceptor, std::size_t& accepted) {
-    std::vector<nbio::async::CoroutineToken> waiters;
+    std::vector<nbio::async::CoroutineJoinHandle> waiters;
     waiters.reserve(kWriters);
     for (std::size_t index = 0; index < kWriters; ++index) {
         waiters.push_back(nbio::async::Spawn(accept_one(acceptor, accepted)));
     }
-    for (const nbio::async::CoroutineToken& waiter : waiters) {
+    for (const nbio::async::CoroutineJoinHandle& waiter : waiters) {
         co_await waiter;
     }
 }
@@ -100,37 +97,37 @@ nbio::async::Task<void> accept_and_send(nbio::net::TcpAcceptService& acceptor) {
     // connection it carries is already the one the peer made.
     auto session = std::move(connection->first);
 
-    std::vector<nbio::async::CoroutineToken> writers;
+    std::vector<nbio::async::CoroutineJoinHandle> writers;
     writers.reserve(kWriters);
     for (std::size_t writer = 0; writer < kWriters; ++writer) {
         writers.push_back(nbio::async::Spawn(send_chunks(session, writer)));
     }
-    for (const nbio::async::CoroutineToken& writer : writers) {
+    for (const nbio::async::CoroutineJoinHandle& writer : writers) {
         co_await writer;
     }
 }
 
-nbio::async::Task<void> accept_and_receive(nbio::net::TcpAcceptService& acceptor,
-                                                nbio::net::TcpSocket& client, const std::string& sent,
-                                                std::vector<std::string>& received, std::size_t bytes_per_receiver) {
+nbio::async::Task<void> accept_and_receive(nbio::net::TcpAcceptService& acceptor, nbio::net::TcpSocket& client,
+                                           const std::string& sent, std::vector<std::string>& received,
+                                           std::size_t bytes_per_receiver) {
     auto connection = co_await acceptor.Accept();
     if (!connection) {
         co_return;
     }
     auto session = std::move(connection->first);
 
-    std::vector<nbio::async::CoroutineToken> waiters;
+    std::vector<nbio::async::CoroutineJoinHandle> waiters;
     waiters.reserve(received.size());
     for (std::size_t index = 0; index < received.size(); ++index) {
         waiters.push_back(nbio::async::Spawn(receive_chunk(session, received, index, bytes_per_receiver)));
     }
 
-    co_await nbio::time::SystemTimeService{}.sleep(std::chrono::milliseconds(20));
+    co_await nbio::time::SystemTimeService{}.Sleep(std::chrono::milliseconds(20));
     const auto sent_result = client.Send(std::span<const char>{sent.data(), sent.size()});
     EXPECT_TRUE(sent_result);
     EXPECT_EQ(*sent_result, sent.size());
 
-    for (const nbio::async::CoroutineToken& waiter : waiters) {
+    for (const nbio::async::CoroutineJoinHandle& waiter : waiters) {
         co_await waiter;
     }
 }
@@ -153,7 +150,7 @@ TEST(TcpSocketChannelTesting, OneReadinessEventServesEveryWaitingAccept) {
 // The completion backend takes connections one at a time instead of draining, and
 // the queue is what keeps every waiter in line behind them.
 TEST(TcpSocketChannelTesting, EveryWaitingAcceptIsAnsweredOnURing) {
-    nbio::async::Runtime::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
+    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
 
     const auto address = TestAddress();
     nbio::net::TcpAcceptService acceptor{address};
@@ -240,5 +237,3 @@ TEST(TcpSocketChannelTesting, ReceivesFromManyCoroutinesShareWhatArrived) {
     }
     EXPECT_EQ(total, kBytes) << "every byte that arrived belongs to one of the waiters";
 }
-
-

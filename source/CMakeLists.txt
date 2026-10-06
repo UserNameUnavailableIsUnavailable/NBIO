@@ -1,0 +1,12 @@
+add_library(nbio)
+add_library(nbio::nbio ALIAS nbio)
+
+add_subdirectory(core)
+add_subdirectory(async)
+add_subdirectory(utility)
+add_subdirectory(fs)
+add_subdirectory(net)
+add_subdirectory(notification)
+add_subdirectory(runtime)
+add_subdirectory(signal)
+add_subdirectory(time)

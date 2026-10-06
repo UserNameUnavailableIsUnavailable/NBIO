@@ -1,16 +1,16 @@
 #pragma once
 
-#include <nbio/async/coroutine.hpp>
-#include <nbio/async/task.hpp>
 #include <atomic>
 #include <cassert>
 #include <coroutine>
 #include <deque>
 #include <mutex>
+#include <nbio/async/coroutine.hpp>
+#include <nbio/runtime/daemon.hpp>
+#include <nbio/async/task.hpp>
 #include <utility>
 
-#include "event_notify_channel.hpp"
-#include <nbio/async/runtime.hpp>
+#include "notifier_channel.hpp"
 
 namespace nbio::notification {
 class ConditionVariable;
@@ -63,7 +63,7 @@ class ConditionVariable {
     friend struct ConditionVariableAwaiter;
 
     std::mutex mutex_;
-    EventNotifyChannel& channel_;
+    NotifierChannel& channel_;
     std::deque<async::Coroutine> notifiees_;
     std::size_t stock_{0};
     std::atomic_bool broadcasting_{false};
@@ -126,7 +126,3 @@ bool ConditionVariableAwaiter<Predicate>::await_suspend(std::coroutine_handle<Pr
     return true;
 }
 }  // namespace nbio::notification
-
-
-
-

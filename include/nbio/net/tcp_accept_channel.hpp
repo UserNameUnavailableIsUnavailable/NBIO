@@ -1,18 +1,17 @@
 #pragma once
 
+#include <deque>
 #include <nbio/async/coroutine.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
+#include <nbio/core/channel.hpp>
+#include <nbio/core/types.hpp>
 #include <nbio/net/address.hpp>
+#include <nbio/net/payload.hpp>
 #include <nbio/net/tcp_acceptor.hpp>
 #include <nbio/net/tcp_connector.hpp>
 #include <nbio/net/tcp_socket.hpp>
-#include <nbio/core/channel.hpp>
-#include <nbio/core/types.hpp>
-#include <nbio/net/payload.hpp>
-#include <nbio/async/runtime.hpp>
-#include <nbio/core/types.hpp>
-#include <deque>
 #include <optional>
 #include <utility>
 
@@ -32,8 +31,7 @@ class TcpAcceptChannel final : public nbio::core::Channel<TcpAcceptChannel> {
     // and the listener is what turns it into a connector -- a connection of the
     // accepted kind can only be made by a listener, because the peer is what makes
     // its data path mean anything.
-    nbio::async::Task<utility::expected<std::pair<net::TcpConnector, net::Address>, std::error_code>>
-    Accept();
+    nbio::async::Task<utility::expected<std::pair<net::TcpConnector, net::Address>, std::error_code>> Accept();
 
     // The operation the backend is asked to perform lives in the payload; the
     // backend fills the communication slots and asks the channel to reap them.
@@ -56,7 +54,3 @@ class TcpAcceptChannel final : public nbio::core::Channel<TcpAcceptChannel> {
     Payload payload_{};
 };
 }  // namespace nbio::net
-
-
-
-

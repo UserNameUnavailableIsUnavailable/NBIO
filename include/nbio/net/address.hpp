@@ -46,6 +46,6 @@ class Address {
 
    private:
     ::sockaddr_storage storage_{};
-    ::socklen_t length_{ 0 };
+    ::socklen_t length_{0};
 };
 }  // namespace nbio::net

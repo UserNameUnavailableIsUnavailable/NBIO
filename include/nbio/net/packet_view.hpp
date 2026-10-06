@@ -44,4 +44,3 @@ class PacketView {
     std::size_t size_in_bytes_;
 };
 }  // namespace nbio::net
-

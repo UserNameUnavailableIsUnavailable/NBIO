@@ -19,5 +19,3 @@ using ::tl::expected;
 using ::tl::unexpected;
 }  // namespace nbio::utility
 #endif  // !defined(HAS_STD_expected)
-
-

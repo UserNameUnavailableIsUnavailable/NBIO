@@ -1,19 +1,19 @@
 #pragma once
 
-#include <nbio/async/scheduler.hpp>
-#include <nbio/core/system_signal.hpp>
-#include <nbio/core/system_timer.hpp>
-#include <nbio/core/types.hpp>
 #include <functional>
 #include <memory>
-
-#include <nbio/notification/event_notify_channel.hpp>
-#include <nbio/notification/event_notifier.hpp>
-#include "types.hpp"
+#include <nbio/async/scheduler.hpp>
+#include <nbio/core/system_signal.hpp>
+#include <nbio/core/timer.hpp>
+#include <nbio/core/types.hpp>
+#include <nbio/notification/notifier.hpp>
+#include <nbio/notification/notifier_channel.hpp>
 #include <nbio/signal/system_signal_channel.hpp>
-#include <nbio/time/system_timer_channel.hpp>
+#include <nbio/time/timer_channel.hpp>
 
-namespace nbio::async::Runtime {
+#include "types.hpp"
+
+namespace nbio::runtime::Daemon {
 class Engine {
    public:
     Engine(const Engine&) = delete;
@@ -33,17 +33,17 @@ class Engine {
     // The engine current on this thread. Throws when installed() is false.
     static Engine& instance();
 
-    // ---- what nbio::async asks of a runtime tag ----
+    // ---- what nbio::async asks of a Daemon tag ----
     static nbio::async::Scheduler& scheduler();
     static Multiplexer& multiplexer();
 
     // The channel carrying application-generated events. ConditionVariable
     // binds to it, so an application event travels the same path as a kernel
     // event: hand the waiter over, let the multiplexer dispatch it.
-    static notification::EventNotifyChannel& notify_channel();
+    static notification::NotifierChannel& notifier_channel();
 
     // The standing channels owned by the engine.
-    static time::SystemTimerChannel& timer_channel();
+    static time::TimerChannel& timer_channel();
 
     // Lazily created: constructing the Signal channel intercepts SIGINT and
     // SIGTERM, which must only happen if the application asks for it.
@@ -56,10 +56,10 @@ class Engine {
 
     std::unique_ptr<Multiplexer> multiplexer_;
     nbio::async::Scheduler scheduler_;
-    nbio::core::SystemTimer timer_;
-    time::SystemTimerChannel timer_channel_;
-    nbio::notification::EventNotifier notifier_;
-    notification::EventNotifyChannel notify_channel_;
+    nbio::core::Timer timer_;
+    time::TimerChannel timer_channel_;
+    nbio::notification::Notifier notifier_;
+    notification::NotifierChannel notifier_channel_;
     std::unique_ptr<nbio::core::SystemSignal> signal_;
     std::unique_ptr<signal::SystemSignalChannel> signal_channel_;
 
@@ -68,4 +68,4 @@ class Engine {
 
 // Creates the platform default backend
 std::unique_ptr<Multiplexer> make_default_multiplexer();
-}  // namespace nbio::async::Runtime
+}  // namespace nbio::runtime::Daemon

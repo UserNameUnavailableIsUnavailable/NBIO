@@ -1,19 +1,18 @@
 #pragma once
 
-#include <nbio/async/task.hpp>
-#include <nbio/utility/expected.hpp>
-#include <nbio/async/runtime.hpp>
-#include <nbio/fs/file_stream.hpp>
-#include <nbio/async/runtime.hpp>
 #include <cstddef>
 #include <filesystem>
+#include <nbio/runtime/daemon.hpp>
+#include <nbio/async/task.hpp>
+#include <nbio/fs/file_stream.hpp>
+#include <nbio/utility/expected.hpp>
 #include <span>
 #include <system_error>
 
 namespace nbio::fs {
 // A file, with the two channels that read and write it.
 //
-// Unlike the runtime's timer and Signal, a file is a resource: opening one is what
+// Unlike the Daemon's timer and Signal, a file is a resource: opening one is what
 // makes these channels exist, so this service owns them and is made rather than
 // borrowed. It is attached to the engine installed on this thread, because that is
 // where the file's readiness is watched -- and it owns the file by value, because one
@@ -24,8 +23,7 @@ class FileStreamService final {
     // Throws when there is no engine on this thread, or when the file cannot be
     // opened: a service that exists is one that has the file.
     explicit FileStreamService(const std::filesystem::path& path,
-                               nbio::fs::FileMode mode = nbio::fs::FileMode::kReadWrite |
-                                                                 nbio::fs::FileMode::kCreate,
+                               nbio::fs::FileMode mode = nbio::fs::FileMode::kReadWrite | nbio::fs::FileMode::kCreate,
                                std::filesystem::perms permissions = nbio::fs::File::kDefaultPermissions);
 
     FileStreamService(const FileStreamService&) = delete;
@@ -47,7 +45,3 @@ class FileStreamService final {
     FileStream stream_;
 };
 }  // namespace nbio::fs
-
-
-
-

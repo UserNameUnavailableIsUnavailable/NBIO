@@ -9,6 +9,4 @@ struct ThreadMemoryPoolMetrics {
 };
 
 ThreadMemoryPoolMetrics thread_memory_pool_metrics() noexcept;
-}  // namespace nbio::core
-
-
+}  // namespace nbio::utility

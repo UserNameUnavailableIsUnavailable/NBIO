@@ -24,7 +24,7 @@ enum class ChannelType {
     kSend,
     kRead,
     kWrite,
-    kSystemTimer,
+    kTimer,
     kSystemSignal,
     kNotify,
 #if defined(NBIO_ENABLE_RDMA)
@@ -35,5 +35,3 @@ enum class ChannelType {
 #endif
 };
 }  // namespace nbio::core
-
-

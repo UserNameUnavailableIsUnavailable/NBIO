@@ -1,9 +1,8 @@
 #include <CLI/CLI.hpp>
-#include <nbio/async.hpp>
-#include <nbio/net.hpp>
-
 #include <cstring>
 #include <iostream>
+#include <nbio/async.hpp>
+#include <nbio/net.hpp>
 #include <string_view>
 #include <utility>
 
@@ -39,8 +38,7 @@ nbio::async::Task<void> RunClient(std::string_view device, std::string_view ip, 
     std::cout << "Sent: " << message << '\n';
 }
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     CLI::App app{"RDMA Client"};
     std::string device;
     std::string ip;

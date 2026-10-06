@@ -1,15 +1,14 @@
 #pragma once
-#if defined(NBIO_ENABLE_IO_URING) && defined(__linux__) 
+#if defined(NBIO_ENABLE_IO_URING) && defined(__linux__)
 
 #include <liburing.h>
 
+#include <chrono>
+#include <cstdint>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
 #include <nbio/core/types.hpp>
-#include <nbio/core/types.hpp>
-#include <chrono>
-#include <cstdint>
 #include <set>
 
 namespace nbio::core {
@@ -46,5 +45,3 @@ class URingMultiplexer final : public Multiplexer {
 };
 }  // namespace nbio::core
 #endif  // defined(__linux__) && defined(NBIO_ENABLE_IO_URING)
-
-

@@ -4,10 +4,9 @@
 #include <infiniband/verbs.h>
 
 #include <memory>
+#include <nbio/utility/bitmap.hpp>
 #include <stdexcept>
 #include <string_view>
-
-#include <nbio/utility/bitmap.hpp>
 
 // The rdma CM id is only ever taken by reference here, so its definition is not
 // needed: what an id carries is the device, and the device is what is compared.
@@ -68,4 +67,3 @@ class RdmaResourceManager {
 }  // namespace nbio::net
 
 #endif
-

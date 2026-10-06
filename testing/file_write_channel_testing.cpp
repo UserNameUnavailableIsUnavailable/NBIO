@@ -9,12 +9,6 @@
 // a writer's own chunks have to arrive in the order it wrote them.
 #include <gtest/gtest.h>
 
-#include <nbio/async/coroutine.hpp>
-#include <nbio/fs/file.hpp>
-#include <nbio/fs/file_stream.hpp>
-#include <nbio/fs/file_stream_service.hpp>
-#include <nbio/async/runtime.hpp>
-#include <nbio/core/types.hpp>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -22,10 +16,17 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <nbio/async/coroutine.hpp>
+#include <nbio/runtime/daemon.hpp>
+#include <nbio/core/types.hpp>
+#include <nbio/fs/file.hpp>
+#include <nbio/fs/file_stream.hpp>
+#include <nbio/fs/file_stream_service.hpp>
 #include <random>
 #include <span>
 #include <string>
 #include <vector>
+
 #include "nbio/async.hpp"
 #include "nbio/core/uring_multiplexer.hpp"
 
@@ -50,8 +51,8 @@ void ReadHeader(const char* chunk, std::uint32_t& writer, std::uint32_t& index) 
 
 // One writer's share of the load: its own chunks, one after the other, into a file
 // the other writers are writing to at the same time.
-nbio::async::Task<void> write_chunks(nbio::fs::FileStream& file,
-                                          const std::vector<std::vector<char>>& chunks, std::size_t writer) {
+nbio::async::Task<void> write_chunks(nbio::fs::FileStream& file, const std::vector<std::vector<char>>& chunks,
+                                     std::size_t writer) {
     for (std::size_t index = 0; index < kChunksPerWriter; ++index) {
         const std::vector<char>& chunk = chunks[writer * kChunksPerWriter + index];
         (void)co_await file.write(std::span<const char>{chunk.data(), chunk.size()});
@@ -96,7 +97,7 @@ void many_writers_one_file() {
         }
         opened = true;
 
-        std::vector<nbio::async::CoroutineToken> writers;
+        std::vector<nbio::async::CoroutineJoinHandle> writers;
         writers.reserve(kWriters);
         for (std::size_t writer = 0; writer < kWriters; ++writer) {
             writers.push_back(nbio::async::Spawn(write_chunks(file->stream(), chunks, writer)));
@@ -105,7 +106,7 @@ void many_writers_one_file() {
         // reference was dropped by an overlap never runs again, so its join is what
         // turns that into a failing (hanging) test instead of a file that quietly
         // has less in it.
-        for (const nbio::async::CoroutineToken& writer : writers) {
+        for (const nbio::async::CoroutineJoinHandle& writer : writers) {
             co_await writer;
         }
         co_return;
@@ -142,8 +143,6 @@ TEST(FileWriteChannelTesting, WritesFromManyCoroutinesAllLand) { many_writers_on
 // The completion backend batches the same writes, in one submission rather than
 // one system call each. This is the engine the server runs on.
 TEST(FileWriteChannelTesting, WritesFromManyCoroutinesAllLandOnURing) {
-    nbio::async::Runtime::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
+    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
     many_writers_one_file();
 }
-
-

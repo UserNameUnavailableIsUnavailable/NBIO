@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_socket.hpp>
-#include <cstddef>
 #include <span>
 #include <system_error>
 

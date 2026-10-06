@@ -1,23 +1,22 @@
 #include <gtest/gtest.h>
 
-#include <nbio/notification/condition_variable.hpp>
-#include <nbio/async/runtime.hpp>
-#include <nbio/async/runtime.hpp>
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <nbio/runtime/daemon.hpp>
+#include <nbio/notification/condition_variable.hpp>
 #include <thread>
 
 namespace {
+using nbio::runtime::Daemon;
 using nbio::notification::ConditionVariable;
-using nbio::async::Runtime;
 
 // A ConditionVariable binds the engine's notify channel on construction, so the
-// runtime has to be installed before any test body runs.
+// Daemon has to be installed before any test body runs.
 class ConditionTesting : public ::testing::Test {};
 
-nbio::async::Task<void> wait_for_flag(ConditionVariable& condition, std::atomic_bool& ready,
-                                           std::atomic_int& resumed, std::promise<void>* first_resume = nullptr) {
+nbio::async::Task<void> wait_for_flag(ConditionVariable& condition, std::atomic_bool& ready, std::atomic_int& resumed,
+                                      std::promise<void>* first_resume = nullptr) {
     co_await condition.wait([&] { return ready.load(std::memory_order_acquire); });
 
     const int current = resumed.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -38,8 +37,8 @@ TEST_F(ConditionTesting, WaitsUntilPredicateTurnsTrue) {
     std::atomic_bool ready{false};
     std::atomic_int resumed{0};
 
-    auto token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
-    Runtime::scheduler().Run();
+    auto token = Daemon::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
+    Daemon::scheduler().Run();
 
     std::thread notifier([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
@@ -47,11 +46,11 @@ TEST_F(ConditionTesting, WaitsUntilPredicateTurnsTrue) {
         condition.NotifyOne();
     });
 
-    Runtime::scheduler().Run();
+    Daemon::scheduler().Run();
     notifier.join();
 
     EXPECT_EQ(resumed.load(std::memory_order_acquire), 1);
-    EXPECT_TRUE(token.IsDead());
+    EXPECT_TRUE(token.is_dead());
 }
 
 TEST_F(ConditionTesting, NotifyOneWakesOneWaiterAtAtime) {
@@ -61,9 +60,9 @@ TEST_F(ConditionTesting, NotifyOneWakesOneWaiterAtAtime) {
     std::promise<void> first_resume;
     auto first_resume_future = first_resume.get_future();
 
-    auto first_token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed, &first_resume));
-    auto second_token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
-    Runtime::scheduler().Run();
+    auto first_token = Daemon::scheduler().Spawn(wait_for_flag(condition, ready, resumed, &first_resume));
+    auto second_token = Daemon::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
+    Daemon::scheduler().Run();
 
     std::thread notifier([&] {
         ready.store(true, std::memory_order_release);
@@ -72,15 +71,15 @@ TEST_F(ConditionTesting, NotifyOneWakesOneWaiterAtAtime) {
         condition.NotifyOne();
     });
 
-    Runtime::scheduler().Run();
+    Daemon::scheduler().Run();
     EXPECT_EQ(resumed.load(std::memory_order_acquire), 1);
 
-    Runtime::scheduler().Run();
+    Daemon::scheduler().Run();
     notifier.join();
 
     EXPECT_EQ(resumed.load(std::memory_order_acquire), 2);
-    EXPECT_TRUE(first_token.IsDead());
-    EXPECT_TRUE(second_token.IsDead());
+    EXPECT_TRUE(first_token.is_dead());
+    EXPECT_TRUE(second_token.is_dead());
 }
 
 TEST_F(ConditionTesting, NotifyAllWakesEveryWaiter) {
@@ -88,22 +87,21 @@ TEST_F(ConditionTesting, NotifyAllWakesEveryWaiter) {
     std::atomic_bool ready{false};
     std::atomic_int resumed{0};
 
-    auto first_token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
-    auto second_token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
-    auto third_token = Runtime::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
-    Runtime::scheduler().Run();
+    auto first_token = Daemon::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
+    auto second_token = Daemon::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
+    auto third_token = Daemon::scheduler().Spawn(wait_for_flag(condition, ready, resumed));
+    Daemon::scheduler().Run();
 
     std::thread notifier([&] {
         ready.store(true, std::memory_order_release);
         condition.NotifyAll();
     });
 
-    Runtime::scheduler().Run();
+    Daemon::scheduler().Run();
     notifier.join();
 
     EXPECT_EQ(resumed.load(std::memory_order_acquire), 3);
-    EXPECT_TRUE(first_token.IsDead());
-    EXPECT_TRUE(second_token.IsDead());
-    EXPECT_TRUE(third_token.IsDead());
+    EXPECT_TRUE(first_token.is_dead());
+    EXPECT_TRUE(second_token.is_dead());
+    EXPECT_TRUE(third_token.is_dead());
 }
-

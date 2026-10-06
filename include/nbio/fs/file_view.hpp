@@ -44,4 +44,3 @@ class FileView {
     FileMode mode_{FileMode::kRead};
 };
 }  // namespace nbio::fs
-

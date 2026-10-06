@@ -2,6 +2,8 @@
 
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
+#include <memory>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/rdma_accept_channel.hpp>
@@ -9,8 +11,6 @@
 #include <nbio/net/rdma_resource_manager.hpp>
 #include <nbio/net/rdma_result.hpp>
 #include <nbio/net/rdma_session_service.hpp>
-#include <nbio/async/runtime.hpp>
-#include <memory>
 #include <system_error>
 
 namespace nbio::net {

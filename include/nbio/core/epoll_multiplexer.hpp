@@ -3,11 +3,11 @@
 
 #include <sys/epoll.h>
 
+#include <chrono>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
 #include <nbio/core/types.hpp>
-#include <chrono>
 #include <unordered_map>
 #include <vector>
 
@@ -24,7 +24,7 @@ class EpollMultiplexer final : public nbio::core::Multiplexer {
 
    private:
     void RunImpl(int timeout);
-    int handle_{-1};                                                                  // epoll file descriptor
+    int handle_{-1};                                                            // epoll file descriptor
     std::unordered_multimap<int, nbio::core::ChannelBase*> pollable_channels_;  // all pollable channels
     std::unordered_multimap<int, nbio::core::ChannelBase*>
         always_channels_;  // channels that are always ready, non-pollable
@@ -32,5 +32,3 @@ class EpollMultiplexer final : public nbio::core::Multiplexer {
 };
 }  // namespace nbio::core
 #endif  // defined(__linux__)
-
-

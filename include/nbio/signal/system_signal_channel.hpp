@@ -1,12 +1,12 @@
 #pragma once
 
-#include <nbio/async/scheduler.hpp>
-#include <nbio/async/task.hpp>
-#include <nbio/signal/system_signal.hpp>
-#include <nbio/core/channel.hpp>
-#include <nbio/core/types.hpp>
 #include <coroutine>
 #include <list>
+#include <nbio/async/scheduler.hpp>
+#include <nbio/async/task.hpp>
+#include <nbio/core/channel.hpp>
+#include <nbio/core/types.hpp>
+#include <nbio/signal/system_signal.hpp>
 
 namespace nbio::signal {
 namespace detail {
@@ -77,7 +77,3 @@ void SystemSignalAwaiter::await_suspend(std::coroutine_handle<PromiseType> handl
     channel.Park(std::move(coroutine));
 }
 }  // namespace nbio::signal
-
-
-
-

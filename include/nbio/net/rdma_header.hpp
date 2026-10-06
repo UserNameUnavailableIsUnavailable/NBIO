@@ -37,5 +37,3 @@ inline std::size_t PacketPayloadBytes(std::size_t length) noexcept {
     return length > sizeof(RdmaHeader) ? length - sizeof(RdmaHeader) : 0;
 }
 }  // namespace nbio::net
-
-

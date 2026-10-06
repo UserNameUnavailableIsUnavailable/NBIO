@@ -1,11 +1,12 @@
 #pragma once
 
-#include <nbio/net/result.hpp>
+#include <sys/socket.h>
+
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <sys/socket.h>
+#include <nbio/net/result.hpp>
 #include <system_error>
 #include <variant>
 #include <vector>

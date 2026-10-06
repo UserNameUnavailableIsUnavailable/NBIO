@@ -1,15 +1,15 @@
 #pragma once
 
+#include <deque>
 #include <nbio/async/coroutine.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
-#include <nbio/utility/buffer.hpp>
-#include <nbio/fs/file.hpp>
 #include <nbio/core/channel.hpp>
 #include <nbio/core/types.hpp>
+#include <nbio/fs/file.hpp>
 #include <nbio/fs/payload.hpp>
-#include <nbio/async/runtime.hpp>
-#include <deque>
+#include <nbio/utility/buffer.hpp>
 #include <optional>
 #include <span>
 #include <system_error>
@@ -23,8 +23,7 @@ class FileWriteChannel final : public nbio::core::Channel<FileWriteChannel> {
    public:
     using Payload = detail::IOVectorPayload<FileWriteChannel>;
 
-    FileWriteChannel(FileStream& file, nbio::core::Multiplexer& multiplexer,
-                     nbio::async::Scheduler& scheduler);
+    FileWriteChannel(FileStream& file, nbio::core::Multiplexer& multiplexer, nbio::async::Scheduler& scheduler);
     ~FileWriteChannel() noexcept;
 
     nbio::async::Task<utility::expected<std::size_t, std::error_code>> write(std::span<const char> buffer);
@@ -50,7 +49,3 @@ class FileWriteChannel final : public nbio::core::Channel<FileWriteChannel> {
     Payload payload_{};
 };
 }  // namespace nbio::fs
-
-
-
-
