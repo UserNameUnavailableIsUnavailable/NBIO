@@ -70,24 +70,3 @@ enabled. io_uring's `Condition` example is added only when io_uring is enabled.
 
 Both options can be enabled together. Building the RDMA examples does not
 require an RDMA device, but running them does.
-
-## IP address parsing
-
-`Address::FromIPv4(ip, port)` and `Address::FromIPv6(ip, port)` parse numeric IP
-addresses and return `utility::expected<Address, std::error_code>`. Use
-`FromUnknown` to detect the family. Invalid text, mismatched families, and embedded null characters
-return `invalid_argument`; native parsing failures preserve the system error.
-Ports are supplied in host byte order. The deprecated `FromV4` and `FromV6`
-factories retain their throwing interface.
-
-## TCP connection setup
-
-`TcpConnector` inherits `Socket::Connect`: blocking sockets connect
-synchronously, while non-blocking sockets return the native in-progress error
-(`operation_in_progress` on Linux, `WSAEWOULDBLOCK` on Windows). After waiting
-for writability, use `TakeError` to check the connection result. Other errors,
-including repeated connection attempts, are returned unchanged.
-
-`TcpConnectChannel` handles the non-blocking wait and completion check for
-coroutine callers. There are no separate `StartConnect` or `FinishConnect`
-methods.
