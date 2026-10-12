@@ -44,12 +44,12 @@ TcpReceiveChannel::TcpReceiveChannel(nbio::net::TcpConnector& connector, nbio::c
                                              static_cast<std::uintptr_t>(connector.native_handle()), multiplexer,
                                              scheduler),
       connector_(connector) {
-    if (!connector_.IsValid()) {
+    if (!connector_.is_valid()) {
         throw std::logic_error("invalid connector");
     }
     // A receive that blocks in the call would hold the whole engine until the peer
     // sent something, so the connection is non-blocking from here.
-    if (auto result = connector_.NonBlocking(true); !result) {
+    if (auto result = connector_.ToggleNonBlocking(true); !result) {
         throw std::system_error(result.error(), "NonBlocking failed");
     }
     // Registered on the first arm(): nothing is watched until a receive queues.

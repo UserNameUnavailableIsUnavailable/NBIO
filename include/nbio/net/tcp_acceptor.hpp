@@ -9,25 +9,22 @@
 #include <utility>
 
 namespace nbio::net {
-class TcpAcceptor {
+class TcpAcceptor final : public TcpSocket {
    public:
     explicit TcpAcceptor(Address::Family family = Address::Family::kIPv4);
 
     TcpAcceptor(const TcpAcceptor&) = delete;
     TcpAcceptor& operator=(const TcpAcceptor&) = delete;
+    TcpAcceptor(TcpAcceptor&& other) noexcept = default;
+    TcpAcceptor& operator=(TcpAcceptor&& other) noexcept = default;
 
+    utility::expected<void, std::error_code> Connect(const Address& peer) noexcept = delete;
     utility::expected<void, std::error_code> Bind(const Address& address, std::size_t backlog = 4096) noexcept;
+    [[deprecated("Use ToggleReuseAddress instead")]]
     utility::expected<void, std::error_code> ReuseAddress(bool toggle = true) noexcept;
     utility::expected<TcpConnector, std::error_code> Accept() noexcept;
     TcpConnector Adopt(TcpSocket socket) const noexcept;
+    [[deprecated("Use ToggleNonBlocking instead")]]
     utility::expected<void, std::error_code> NonBlocking(bool toggle = true) noexcept;
-
-    std::uintptr_t native_handle() const noexcept { return socket_.native_handle(); }
-
-    void Close() noexcept;
-    bool is_valid() const noexcept;
-
-   private:
-    TcpSocket socket_;
 };
 }  // namespace nbio::net

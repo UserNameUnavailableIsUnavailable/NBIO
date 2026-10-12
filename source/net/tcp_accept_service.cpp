@@ -13,7 +13,7 @@ TcpAcceptService::TcpAcceptService(const nbio::net::Address& address, int backlo
     // A listener that cannot be restarted while the socket it replaced is still in
     // TIME_WAIT is not much of a listener, and nothing else can set this: the socket
     // belongs to the acceptor.
-    if (auto reuse = acceptor_.ReuseAddress(true); !reuse) [[unlikely]]
+    if (auto reuse = acceptor_.ToggleReuseAddress(true); !reuse) [[unlikely]]
     {
         throw std::system_error(reuse.error(), "setsockopt(SO_REUSEADDR) failed");
     }

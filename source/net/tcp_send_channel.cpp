@@ -45,10 +45,10 @@ TcpSendChannel::TcpSendChannel(nbio::net::TcpConnector& connector, nbio::core::M
     : nbio::core::Channel<TcpSendChannel>(nbio::core::ChannelType::kSend, connector.native_handle(), multiplexer,
                                           scheduler),
       connector_(connector) {
-    if (!connector.IsValid()) {
+    if (!connector.is_valid()) {
         throw std::logic_error("socket is invalid");
     }
-    if (auto result = connector.NonBlocking(true); !result) {
+    if (auto result = connector.ToggleNonBlocking(true); !result) {
         throw std::system_error(result.error(), "NonBlocking failed");
     }
     // Registered on the first arm(): nothing is watched until a send queues.

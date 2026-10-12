@@ -16,13 +16,13 @@ TcpConnectChannel::TcpConnectChannel(nbio::net::TcpConnector connector, nbio::co
                                              static_cast<std::uintptr_t>(connector.native_handle()), multiplexer,
                                              scheduler),
       connector_(std::move(connector)) {
-    if (!connector_.IsValid()) {
+    if (!connector_.is_valid()) {
         throw std::logic_error("invalid connector");
     }
     // A connect that blocks in the call would hold the whole engine for as long as the
     // handshake takes, so the socket is non-blocking from here: what it reports instead
     // is a connect under way, which is what this channel then waits for.
-    if (auto result = connector_.NonBlocking(true); !result) {
+    if (auto result = connector_.ToggleNonBlocking(true); !result) {
         throw std::system_error(result.error(), "NonBlocking failed");
     }
     // Registered on the first arm(): nothing is watched until a connect queues.

@@ -1,7 +1,10 @@
 #include <cerrno>
+#include <limits>
 #include <nbio/net/tcp_socket.hpp>
 
-#if defined(_WIN32)
+#if defined(__linux__)
+#include <netinet/tcp.h>
+#elif defined(_WIN32)
 #include <winsock2.h>
 #endif
 
@@ -187,7 +190,7 @@ utility::expected<void, std::error_code> TcpSocket::Connect(const Address& peer)
     return {};
 }
 
-utility::expected<void, std::error_code> TcpSocket::NonBlocking(bool toggle) noexcept {
+utility::expected<void, std::error_code> TcpSocket::ToggleNonBlocking(bool toggle) noexcept {
 #if defined(__linux__)
     const int flags = ::fcntl(handle_, F_GETFL, 0);
     if (flags < 0) {
@@ -199,27 +202,32 @@ utility::expected<void, std::error_code> TcpSocket::NonBlocking(bool toggle) noe
     }
 #elif defined(_WIN32)
     u_long mode = toggle ? 1 : 0;
-    if (::ioctlsocket(handle_, FIOnbio, &mode) != 0) {
+    if (::ioctlsocket(handle_, FIONBIO, &mode) != 0) {
         return utility::unexpected<std::error_code>(last_error());
     }
 #endif
     return {};
 }
 
-utility::expected<void, std::error_code> TcpSocket::TakeError() const noexcept {
-    int pending = 0;
-#if defined(_WIN32)
-    int length = static_cast<int>(sizeof(pending));
-    if (::getsockopt(handle_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&pending), &length) < 0)
-#elif defined(__linux__)
-    ::socklen_t length = static_cast< ::socklen_t>(sizeof(pending));
-    if (::getsockopt(handle_, SOL_SOCKET, SO_ERROR, &pending, &length) < 0)
-#endif
-    {
+utility::expected<bool, std::error_code> TcpSocket::IsNonBlocking() const noexcept {
+#if defined(__linux__)
+    const int flags = ::fcntl(handle_, F_GETFL, 0);
+    if (flags < 0) {
         return utility::unexpected<std::error_code>(last_error());
     }
-    if (pending != 0) {
-        return utility::unexpected<std::error_code>({pending, std::system_category()});
+    return (flags & O_NONBLOCK) != 0;
+#elif defined(_WIN32)
+    return utility::unexpected<std::error_code>(std::make_error_code(std::errc::operation_not_supported));
+#endif
+}
+
+utility::expected<void, std::error_code> TcpSocket::TakeError() const noexcept {
+    auto pending = GetNativeOption<int>(SOL_SOCKET, SO_ERROR);
+    if (!pending) {
+        return utility::unexpected<std::error_code>(pending.error());
+    }
+    if (*pending != 0) {
+        return utility::unexpected<std::error_code>({*pending, std::system_category()});
     }
     return {};
 }
@@ -237,7 +245,23 @@ std::error_code TcpSocket::SetNativeOption(int level, int option, const T& value
     return {};
 }
 
-utility::expected<void, std::error_code> TcpSocket::ReuseAddress(bool toggle) noexcept {
+template <typename T>
+utility::expected<T, std::error_code> TcpSocket::GetNativeOption(int level, int option) const noexcept {
+    T value{};
+#if defined(_WIN32)
+    int length = static_cast<int>(sizeof(T));
+    if (::getsockopt(handle_, level, option, reinterpret_cast<char*>(&value), &length) < 0)
+#elif defined(__linux__)
+    ::socklen_t length = static_cast< ::socklen_t>(sizeof(T));
+    if (::getsockopt(handle_, level, option, &value, &length) < 0)
+#endif
+    {
+        return utility::unexpected<std::error_code>(last_error());
+    }
+    return value;
+}
+
+utility::expected<void, std::error_code> TcpSocket::ToggleReuseAddress(bool toggle) noexcept {
     const int value = toggle ? 1 : 0;
     if (auto error = SetNativeOption(SOL_SOCKET, SO_REUSEADDR, value)) {
         return utility::unexpected<std::error_code>(std::move(error));
@@ -245,22 +269,71 @@ utility::expected<void, std::error_code> TcpSocket::ReuseAddress(bool toggle) no
     return {};
 }
 
-utility::expected<void, std::error_code> TcpSocket::ReusePort(bool toggle) noexcept {
+utility::expected<bool, std::error_code> TcpSocket::IsReuseAddress() const noexcept {
+    return GetNativeOption<int>(SOL_SOCKET, SO_REUSEADDR).transform([](int value) { return value != 0; });
+}
+
+utility::expected<void, std::error_code> TcpSocket::ToggleReusePort(bool toggle) noexcept {
 #if defined(SO_REUSEPORT)
     const int value = toggle ? 1 : 0;
     if (auto error = SetNativeOption(SOL_SOCKET, SO_REUSEPORT, value)) {
         return utility::unexpected<std::error_code>(std::move(error));
     }
-#endif
     return {};
+#else
+    return utility::unexpected<std::error_code>(std::make_error_code(std::errc::operation_not_supported));
+#endif
 }
 
-utility::expected<void, std::error_code> TcpSocket::KeepAlive(bool enable) noexcept {
+utility::expected<bool, std::error_code> TcpSocket::IsReusePort() const noexcept {
+#if defined(SO_REUSEPORT)
+    return GetNativeOption<int>(SOL_SOCKET, SO_REUSEPORT).transform([](int value) { return value != 0; });
+#else
+    return utility::unexpected<std::error_code>(std::make_error_code(std::errc::operation_not_supported));
+#endif
+}
+
+utility::expected<void, std::error_code> TcpSocket::ToggleKeepAlive(bool enable) noexcept {
     const int value = enable ? 1 : 0;
     if (auto error = SetNativeOption(SOL_SOCKET, SO_KEEPALIVE, value)) {
         return utility::unexpected<std::error_code>(std::move(error));
     }
     return {};
+}
+
+utility::expected<bool, std::error_code> TcpSocket::IsKeepAlive() const noexcept {
+    return GetNativeOption<int>(SOL_SOCKET, SO_KEEPALIVE).transform([](int value) { return value != 0; });
+}
+
+utility::expected<void, std::error_code> TcpSocket::ToggleNoDelay(bool toggle) noexcept {
+    const int value = toggle ? 1 : 0;
+    if (auto error = SetNativeOption(IPPROTO_TCP, TCP_NODELAY, value)) {
+        return utility::unexpected<std::error_code>(std::move(error));
+    }
+    return {};
+}
+
+utility::expected<bool, std::error_code> TcpSocket::IsNoDelay() const noexcept {
+    return GetNativeOption<int>(IPPROTO_TCP, TCP_NODELAY).transform([](int value) { return value != 0; });
+}
+
+utility::expected<void, std::error_code> TcpSocket::SetLingerDuration(std::chrono::seconds duration) noexcept {
+    ::linger value{};
+    if (duration.count() < 0 || duration.count() > std::numeric_limits<decltype(value.l_linger)>::max()) {
+        return utility::unexpected<std::error_code>(std::make_error_code(std::errc::invalid_argument));
+    }
+    value.l_onoff = duration.count() != 0;
+    value.l_linger = static_cast<decltype(value.l_linger)>(duration.count());
+    if (auto error = SetNativeOption(SOL_SOCKET, SO_LINGER, value)) {
+        return utility::unexpected<std::error_code>(std::move(error));
+    }
+    return {};
+}
+
+utility::expected<std::chrono::seconds, std::error_code> TcpSocket::GetLingerDuration() const noexcept {
+    return GetNativeOption<::linger>(SOL_SOCKET, SO_LINGER).transform([](const ::linger& value) {
+        return std::chrono::seconds{value.l_onoff != 0 ? value.l_linger : 0};
+    });
 }
 
 utility::expected<Address, std::error_code> TcpSocket::GetLocalAddress() const noexcept {

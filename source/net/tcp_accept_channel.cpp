@@ -21,7 +21,7 @@ TcpAcceptChannel::TcpAcceptChannel(nbio::net::TcpAcceptor& acceptor, nbio::core:
     }
     // The listener has to be polled rather than waited on: an accept that blocks in
     // the call would hold the whole engine.
-    if (auto result = acceptor_.NonBlocking(true); !result) {
+    if (auto result = acceptor_.ToggleNonBlocking(true); !result) {
         throw std::system_error(result.error(), "NonBlocking failed");
     }
     // Registered on the first arm(): there is nothing to watch until a wait queues.

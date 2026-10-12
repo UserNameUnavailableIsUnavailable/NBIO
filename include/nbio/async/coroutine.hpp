@@ -109,10 +109,6 @@ class CoroutineJoinHandle {
 };
 
 inline Coroutine::operator bool() const noexcept {
-    // The block first, and through the weak reference: the frame is destroyed with the
-    // block, so asking the handle anything before asking whether the coroutine is still
-    // live would be reading a frame that may be gone. `handle` alone is free and rules
-    // out the default-constructed case.
     if (!handle) {
         return false;
     }
