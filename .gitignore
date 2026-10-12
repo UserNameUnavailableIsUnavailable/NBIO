@@ -5,3 +5,6 @@ CMakeUserPresets.json
 .DS_Store
 *.log
 Thumbs.db
+__pycache__/
+.mypy_cache/
+.venv/
