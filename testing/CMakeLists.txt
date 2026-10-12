@@ -6,7 +6,8 @@ add_executable(
 	condition_testing.cpp
 	file_write_channel_testing.cpp
 	socket_channel_testing.cpp
-	tcp_socket_testing.cpp
+	socket_testing.cpp
+	address_testing.cpp
 )
 
 find_package(GTest REQUIRED)

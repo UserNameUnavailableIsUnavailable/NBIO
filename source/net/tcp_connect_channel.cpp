@@ -52,10 +52,17 @@ class ConnectAwaiter {
                 return false;
             }
         }
-        if (auto started = channel_.connector_.StartConnect(target_); !started) {
-            // Refused before the kernel took it -- an address that does not resolve, a
-            // socket that is already connected -- so there is nothing to wait for.
-            failure_ = started.error();
+        auto connected = channel_.connector_.Connect(target_);
+        if (connected) {
+            return false;
+        }
+#if defined(_WIN32)
+        const bool pending = connected.error() == std::error_code(WSAEWOULDBLOCK, std::system_category());
+#else
+        const bool pending = connected.error() == std::errc::operation_in_progress;
+#endif
+        if (!pending) {
+            failure_ = connected.error();
             return false;
         }
         channel_.Park(async::Coroutine::FromHandle(handle));
@@ -70,7 +77,7 @@ class ConnectAwaiter {
         // The wait is over, so the socket has the answer: made, or the reason it was
         // not. Either way it is the end of this channel's life, so the connection goes
         // back out with it.
-        if (auto settled = channel_.connector_.FinishConnect(); !settled) {
+        if (auto settled = channel_.connector_.TakeError(); !settled) {
             return utility::unexpected<std::error_code>(settled.error());
         }
         return std::move(channel_.connector_);

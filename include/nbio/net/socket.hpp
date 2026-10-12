@@ -19,37 +19,46 @@
 #endif
 
 namespace nbio::net {
-class TcpSocket {
+class Socket {
    public:
+    constexpr static std::uintptr_t kInvalidHandle{static_cast<std::uintptr_t>(-1)};
+
     enum class Type {
+        kRaw,
         kStream,
         kDatagram,
     };
+    enum class Protocol {
+        kDefault,
+        kIPv4,
+        kIPv6,
+        kICMPv4,
+        kICMPv6,
+        kTCP,
+        kUDP,
+    };
     enum class ShutdownHow { kRead, kWrite, kBoth };
 
-    TcpSocket() noexcept = default;
-    TcpSocket(Address::Family family, Type type);
-    TcpSocket(const TcpSocket&) = delete;
-    TcpSocket& operator=(const TcpSocket&) = delete;
-    TcpSocket(TcpSocket&& other) noexcept { std::swap(handle_, other.handle_); }
-    TcpSocket& operator=(TcpSocket&& other) noexcept {
-        if (this != &other) {
-            Close();
-            handle_ = std::exchange(other.handle_, kInvalidHandle);
-        }
+    Socket() noexcept = default;
+    Socket(Address::Family family, Type type, Protocol protocol = Protocol::kDefault);
+    Socket(const Socket&) = delete;
+    Socket& operator=(const Socket&) = delete;
+    Socket(Socket&& other) noexcept { std::swap(handle_, other.handle_); }
+    Socket& operator=(Socket&& other) noexcept {
+        std::swap(handle_, other.handle_);
         return *this;
     }
-    ~TcpSocket() noexcept { Close(); }
+    ~Socket() noexcept { Close(); }
 
-    [[nodiscard]] static TcpSocket Adopt(std::uintptr_t handle) noexcept;
+    [[nodiscard]] static Socket Adopt(std::uintptr_t handle) noexcept;
 
     std::uintptr_t native_handle() const noexcept { return handle_; }
-    void swap(TcpSocket& other) noexcept { std::swap(handle_, other.handle_); }
+    void swap(Socket& other) noexcept { std::swap(handle_, other.handle_); }
     bool is_valid() const noexcept { return handle_ != kInvalidHandle; }
 
     utility::expected<void, std::error_code> Bind(const Address& local) noexcept;
     utility::expected<void, std::error_code> Listen(int backlog = 4096) noexcept;
-    utility::expected<std::pair<TcpSocket, Address>, std::error_code> Accept() noexcept;
+    utility::expected<std::pair<Socket, Address>, std::error_code> Accept() noexcept;
     utility::expected<std::size_t, std::error_code> Receive(std::span<char> buffer) noexcept;
     utility::expected<std::size_t, std::error_code> Send(std::span<const char> buffer) noexcept;
     utility::expected<void, std::error_code> Connect(const Address& peer) noexcept;
@@ -105,7 +114,7 @@ class TcpSocket {
     utility::expected<std::chrono::seconds, std::error_code> GetLingerDuration() const noexcept;
 
     utility::expected<Address, std::error_code> GetLocalAddress() const noexcept;
-    utility::expected<Address, std::error_code> GetPeerAddress() const noexcept;
+    utility::expected<Address, std::error_code> GetRemoteAddress() const noexcept;
 
     void Shutdown(ShutdownHow how = ShutdownHow::kBoth) noexcept;
     void Close() noexcept;
@@ -116,8 +125,6 @@ class TcpSocket {
     template <typename T>
     utility::expected<T, std::error_code> GetNativeOption(int level, int option) const noexcept;
     static std::error_code last_error() noexcept;
-
-    constexpr static std::uintptr_t kInvalidHandle{static_cast<std::uintptr_t>(-1)};
-    std::uintptr_t handle_ = kInvalidHandle;
+    std::uintptr_t handle_{ kInvalidHandle };
 };
 }  // namespace nbio::net

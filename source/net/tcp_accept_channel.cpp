@@ -4,7 +4,7 @@
 #include <nbio/core/types.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_accept_channel.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <optional>
 #include <stdexcept>
 #include <utility>

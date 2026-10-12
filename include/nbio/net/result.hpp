@@ -2,7 +2,7 @@
 
 #include <cstddef>
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <span>
 #include <system_error>
 
@@ -15,7 +15,7 @@ enum class OperationStatus {
 
 struct Communication {
     OperationStatus status{};
-    TcpSocket socket{};
+    Socket socket{};
     Address address{};
     std::error_code error_code{};
 };

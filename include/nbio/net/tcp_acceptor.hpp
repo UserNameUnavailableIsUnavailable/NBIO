@@ -3,13 +3,13 @@
 #include <cstdint>
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_connector.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <nbio/utility/expected.hpp>
 #include <system_error>
 #include <utility>
 
 namespace nbio::net {
-class TcpAcceptor final : public TcpSocket {
+class TcpAcceptor final : public Socket {
    public:
     explicit TcpAcceptor(Address::Family family = Address::Family::kIPv4);
 
@@ -23,7 +23,7 @@ class TcpAcceptor final : public TcpSocket {
     [[deprecated("Use ToggleReuseAddress instead")]]
     utility::expected<void, std::error_code> ReuseAddress(bool toggle = true) noexcept;
     utility::expected<TcpConnector, std::error_code> Accept() noexcept;
-    TcpConnector Adopt(TcpSocket socket) const noexcept;
+    TcpConnector Adopt(Socket socket) const noexcept;
     [[deprecated("Use ToggleNonBlocking instead")]]
     utility::expected<void, std::error_code> NonBlocking(bool toggle = true) noexcept;
 };

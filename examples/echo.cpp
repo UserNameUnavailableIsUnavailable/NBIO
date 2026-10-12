@@ -5,14 +5,18 @@
 #include <nbio/async/task.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_accept_service.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <nbio/utility/buffer.hpp>
 
 using namespace nbio;
 
 nbio::async::Task<void> Service() {
-    auto address = net::Address::FromV4("127.0.0.1", 8080);
-    nbio::net::TcpAcceptService acceptor{address};
+    auto address = net::Address::FromIPv4("127.0.0.1", 8080);
+    if (!address) {
+        std::cerr << "Invalid listen address: " << address.error().message() << '\n';
+        co_return;
+    }
+    nbio::net::TcpAcceptService acceptor{*address};
     while (true) {
         auto accepted = co_await acceptor.Accept();
         if (!accepted) {

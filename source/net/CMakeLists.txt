@@ -4,7 +4,7 @@ target_sources(
     nbio
     PRIVATE
     address.cpp
-    tcp_socket.cpp
+    socket.cpp
     tcp_acceptor.cpp
     tcp_connector.cpp
     tcp_accept_channel.cpp

@@ -1,6 +1,6 @@
 #include <cerrno>
 #include <limits>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 
 #if defined(__linux__)
 #include <netinet/tcp.h>
@@ -20,11 +20,6 @@
 #define IS_SOCKET_ERROR_INTERRUPTED (::WSAGetLastError() == WSAEINTR)
 #endif
 
-#if defined(__linux__)
-#define IS_SOCKET_ERROR_PEER_CLOSED (errno == ECONNRESET || errno == ENOTCONN)
-#elif defined(_WIN32)
-#define IS_SOCKET_ERROR_PEER_CLOSED (::WSAGetLastError() == WSAECONNRESET || ::WSAGetLastError() == WSAENOTCONN)
-#endif
 #include <system_error>
 
 namespace nbio::net {
@@ -59,7 +54,7 @@ void ReleaseWinsock() {}
 #endif
 }  // namespace
 
-std::error_code TcpSocket::last_error() noexcept {
+std::error_code Socket::last_error() noexcept {
 #if defined(__linux__)
     return std::error_code(errno, std::system_category());
 #elif defined(_WIN32)
@@ -67,7 +62,7 @@ std::error_code TcpSocket::last_error() noexcept {
 #endif
 }
 
-TcpSocket::TcpSocket(Address::Family family, Type type) {
+Socket::Socket(Address::Family family, Type type, Protocol protocol) {
     EnsureWinsock();
 
     int domain = 0;
@@ -81,7 +76,7 @@ TcpSocket::TcpSocket(Address::Family family, Type type) {
             break;
         default:
             throw std::system_error(std::make_error_code(std::errc::address_family_not_supported),
-                                    "TcpSocket: unsupported address family");
+                                    "Socket: unsupported address family");
     }
     switch (type) {
         case Type::kStream:
@@ -92,51 +87,75 @@ TcpSocket::TcpSocket(Address::Family family, Type type) {
             break;
         default:
             throw std::system_error(std::make_error_code(std::errc::protocol_not_supported),
-                                    "TcpSocket: unsupported type");
+                                    "Socket: unsupported type");
     }
 
-    handle_ = ::socket(domain, type_, 0);
+    int protocol_ = 0;
+    switch (protocol) {
+        case Protocol::kIPv4:
+            protocol_ = IPPROTO_IP;
+            break;
+        case Protocol::kIPv6:
+            protocol_ = IPPROTO_IPV6;
+            break;
+        case Protocol::kICMPv4:
+            protocol_ = IPPROTO_ICMP;
+            break;
+        case Protocol::kTCP:
+            protocol_ = IPPROTO_TCP;
+            break;
+        case Protocol::kUDP:
+            protocol_ = IPPROTO_UDP;
+            break;
+        case Protocol::kICMPv6:
+            protocol_ = IPPROTO_ICMPV6;
+            break;
+        case Protocol::kDefault:
+            protocol_ = 0;
+            break;
+    }
+    handle_ = ::socket(domain, type_, protocol_);
     if (handle_ == kInvalidHandle) {
         ReleaseWinsock();
-        throw std::system_error(last_error(), "TcpSocket: failed to create socket");
+        throw std::system_error(last_error(), "Socket: failed to create socket");
     }
 #if defined(__linux__)
     ::fcntl(handle_, F_SETFD, FD_CLOEXEC);
 #endif
 }
 
-TcpSocket TcpSocket::Adopt(std::uintptr_t handle) noexcept {
+Socket Socket::Adopt(std::uintptr_t handle) noexcept {
     if (handle == kInvalidHandle) {
-        return TcpSocket{};
+        return Socket{};
     }
     EnsureWinsock();
-    TcpSocket socket;
+    Socket socket;
     socket.handle_ = handle;
     return socket;
 }
 
-utility::expected<void, std::error_code> TcpSocket::Bind(const Address& local) noexcept {
+utility::expected<void, std::error_code> Socket::Bind(const Address& local) noexcept {
     if (::bind(handle_, local.storage<sockaddr>(), local.length()) < 0) {
         return utility::unexpected(last_error());
     }
     return {};
 }
 
-utility::expected<void, std::error_code> TcpSocket::Listen(int backlog) noexcept {
+utility::expected<void, std::error_code> Socket::Listen(int backlog) noexcept {
     if (::listen(handle_, backlog) < 0) {
         return utility::unexpected<std::error_code>(last_error());
     }
     return {};
 }
 
-utility::expected<std::pair<TcpSocket, Address>, std::error_code> TcpSocket::Accept() noexcept {
+utility::expected<std::pair<Socket, Address>, std::error_code> Socket::Accept() noexcept {
     Address address;
     while (true) {
         address.length() = Address::capacity();
         auto handle = ::accept(handle_, address.storage<sockaddr>(), &address.length());
 
         if (static_cast<std::uintptr_t>(handle) != kInvalidHandle) {
-            return std::pair{TcpSocket::Adopt(handle), address};
+            return std::pair{Socket::Adopt(handle), address};
         }
         if (IS_SOCKET_ERROR_AGAIN) {
             return utility::unexpected<std::error_code>(std::make_error_code(std::errc::operation_would_block));
@@ -148,7 +167,7 @@ utility::expected<std::pair<TcpSocket, Address>, std::error_code> TcpSocket::Acc
     }
 }
 
-utility::expected<std::size_t, std::error_code> TcpSocket::Receive(std::span<char> buffer) noexcept {
+utility::expected<std::size_t, std::error_code> Socket::Receive(std::span<char> buffer) noexcept {
     while (true) {
         const auto n = ::recv(handle_, buffer.data(), buffer.size(), 0);
         if (n > 0) {
@@ -167,7 +186,7 @@ utility::expected<std::size_t, std::error_code> TcpSocket::Receive(std::span<cha
     }
 }
 
-utility::expected<std::size_t, std::error_code> TcpSocket::Send(std::span<const char> buffer) noexcept {
+utility::expected<std::size_t, std::error_code> Socket::Send(std::span<const char> buffer) noexcept {
     while (true) {
         const auto n = ::send(handle_, buffer.data(), buffer.size(), MSG_NOSIGNAL);
         if (n >= 0) {
@@ -183,14 +202,14 @@ utility::expected<std::size_t, std::error_code> TcpSocket::Send(std::span<const 
     }
 }
 
-utility::expected<void, std::error_code> TcpSocket::Connect(const Address& peer) noexcept {
+utility::expected<void, std::error_code> Socket::Connect(const Address& peer) noexcept {
     if (::connect(handle_, peer.storage<sockaddr>(), peer.length()) < 0) {
         return utility::unexpected<std::error_code>(last_error());
     }
     return {};
 }
 
-utility::expected<void, std::error_code> TcpSocket::ToggleNonBlocking(bool toggle) noexcept {
+utility::expected<void, std::error_code> Socket::ToggleNonBlocking(bool toggle) noexcept {
 #if defined(__linux__)
     const int flags = ::fcntl(handle_, F_GETFL, 0);
     if (flags < 0) {
@@ -209,7 +228,7 @@ utility::expected<void, std::error_code> TcpSocket::ToggleNonBlocking(bool toggl
     return {};
 }
 
-utility::expected<bool, std::error_code> TcpSocket::IsNonBlocking() const noexcept {
+utility::expected<bool, std::error_code> Socket::IsNonBlocking() const noexcept {
 #if defined(__linux__)
     const int flags = ::fcntl(handle_, F_GETFL, 0);
     if (flags < 0) {
@@ -221,7 +240,7 @@ utility::expected<bool, std::error_code> TcpSocket::IsNonBlocking() const noexce
 #endif
 }
 
-utility::expected<void, std::error_code> TcpSocket::TakeError() const noexcept {
+utility::expected<void, std::error_code> Socket::TakeError() const noexcept {
     auto pending = GetNativeOption<int>(SOL_SOCKET, SO_ERROR);
     if (!pending) {
         return utility::unexpected<std::error_code>(pending.error());
@@ -233,7 +252,7 @@ utility::expected<void, std::error_code> TcpSocket::TakeError() const noexcept {
 }
 
 template <typename T>
-std::error_code TcpSocket::SetNativeOption(int level, int option, const T& value) noexcept {
+std::error_code Socket::SetNativeOption(int level, int option, const T& value) noexcept {
 #if defined(_WIN32)
     if (::setsockopt(handle_, level, option, reinterpret_cast<const char*>(&value), static_cast<int>(sizeof(T))) < 0)
 #elif defined(__linux__)
@@ -246,7 +265,7 @@ std::error_code TcpSocket::SetNativeOption(int level, int option, const T& value
 }
 
 template <typename T>
-utility::expected<T, std::error_code> TcpSocket::GetNativeOption(int level, int option) const noexcept {
+utility::expected<T, std::error_code> Socket::GetNativeOption(int level, int option) const noexcept {
     T value{};
 #if defined(_WIN32)
     int length = static_cast<int>(sizeof(T));
@@ -261,7 +280,7 @@ utility::expected<T, std::error_code> TcpSocket::GetNativeOption(int level, int 
     return value;
 }
 
-utility::expected<void, std::error_code> TcpSocket::ToggleReuseAddress(bool toggle) noexcept {
+utility::expected<void, std::error_code> Socket::ToggleReuseAddress(bool toggle) noexcept {
     const int value = toggle ? 1 : 0;
     if (auto error = SetNativeOption(SOL_SOCKET, SO_REUSEADDR, value)) {
         return utility::unexpected<std::error_code>(std::move(error));
@@ -269,11 +288,11 @@ utility::expected<void, std::error_code> TcpSocket::ToggleReuseAddress(bool togg
     return {};
 }
 
-utility::expected<bool, std::error_code> TcpSocket::IsReuseAddress() const noexcept {
+utility::expected<bool, std::error_code> Socket::IsReuseAddress() const noexcept {
     return GetNativeOption<int>(SOL_SOCKET, SO_REUSEADDR).transform([](int value) { return value != 0; });
 }
 
-utility::expected<void, std::error_code> TcpSocket::ToggleReusePort(bool toggle) noexcept {
+utility::expected<void, std::error_code> Socket::ToggleReusePort(bool toggle) noexcept {
 #if defined(SO_REUSEPORT)
     const int value = toggle ? 1 : 0;
     if (auto error = SetNativeOption(SOL_SOCKET, SO_REUSEPORT, value)) {
@@ -285,7 +304,7 @@ utility::expected<void, std::error_code> TcpSocket::ToggleReusePort(bool toggle)
 #endif
 }
 
-utility::expected<bool, std::error_code> TcpSocket::IsReusePort() const noexcept {
+utility::expected<bool, std::error_code> Socket::IsReusePort() const noexcept {
 #if defined(SO_REUSEPORT)
     return GetNativeOption<int>(SOL_SOCKET, SO_REUSEPORT).transform([](int value) { return value != 0; });
 #else
@@ -293,7 +312,7 @@ utility::expected<bool, std::error_code> TcpSocket::IsReusePort() const noexcept
 #endif
 }
 
-utility::expected<void, std::error_code> TcpSocket::ToggleKeepAlive(bool enable) noexcept {
+utility::expected<void, std::error_code> Socket::ToggleKeepAlive(bool enable) noexcept {
     const int value = enable ? 1 : 0;
     if (auto error = SetNativeOption(SOL_SOCKET, SO_KEEPALIVE, value)) {
         return utility::unexpected<std::error_code>(std::move(error));
@@ -301,11 +320,11 @@ utility::expected<void, std::error_code> TcpSocket::ToggleKeepAlive(bool enable)
     return {};
 }
 
-utility::expected<bool, std::error_code> TcpSocket::IsKeepAlive() const noexcept {
+utility::expected<bool, std::error_code> Socket::IsKeepAlive() const noexcept {
     return GetNativeOption<int>(SOL_SOCKET, SO_KEEPALIVE).transform([](int value) { return value != 0; });
 }
 
-utility::expected<void, std::error_code> TcpSocket::ToggleNoDelay(bool toggle) noexcept {
+utility::expected<void, std::error_code> Socket::ToggleNoDelay(bool toggle) noexcept {
     const int value = toggle ? 1 : 0;
     if (auto error = SetNativeOption(IPPROTO_TCP, TCP_NODELAY, value)) {
         return utility::unexpected<std::error_code>(std::move(error));
@@ -313,11 +332,11 @@ utility::expected<void, std::error_code> TcpSocket::ToggleNoDelay(bool toggle) n
     return {};
 }
 
-utility::expected<bool, std::error_code> TcpSocket::IsNoDelay() const noexcept {
+utility::expected<bool, std::error_code> Socket::IsNoDelay() const noexcept {
     return GetNativeOption<int>(IPPROTO_TCP, TCP_NODELAY).transform([](int value) { return value != 0; });
 }
 
-utility::expected<void, std::error_code> TcpSocket::SetLingerDuration(std::chrono::seconds duration) noexcept {
+utility::expected<void, std::error_code> Socket::SetLingerDuration(std::chrono::seconds duration) noexcept {
     ::linger value{};
     if (duration.count() < 0 || duration.count() > std::numeric_limits<decltype(value.l_linger)>::max()) {
         return utility::unexpected<std::error_code>(std::make_error_code(std::errc::invalid_argument));
@@ -330,31 +349,31 @@ utility::expected<void, std::error_code> TcpSocket::SetLingerDuration(std::chron
     return {};
 }
 
-utility::expected<std::chrono::seconds, std::error_code> TcpSocket::GetLingerDuration() const noexcept {
+utility::expected<std::chrono::seconds, std::error_code> Socket::GetLingerDuration() const noexcept {
     return GetNativeOption<::linger>(SOL_SOCKET, SO_LINGER).transform([](const ::linger& value) {
         return std::chrono::seconds{value.l_onoff != 0 ? value.l_linger : 0};
     });
 }
 
-utility::expected<Address, std::error_code> TcpSocket::GetLocalAddress() const noexcept {
+utility::expected<Address, std::error_code> Socket::GetLocalAddress() const noexcept {
     Address address;
     address.length() = Address::capacity();
     if (::getsockname(handle_, address.storage<sockaddr>(), &address.length()) < 0) {
-        return utility::unexpected<std::error_code>(TcpSocket::last_error());
+        return utility::unexpected<std::error_code>(Socket::last_error());
     }
     return address;
 }
 
-utility::expected<Address, std::error_code> TcpSocket::GetPeerAddress() const noexcept {
+utility::expected<Address, std::error_code> Socket::GetRemoteAddress() const noexcept {
     Address address;
     address.length() = Address::capacity();
     if (::getpeername(handle_, address.storage<sockaddr>(), &address.length()) < 0) {
-        return utility::unexpected<std::error_code>(TcpSocket::last_error());
+        return utility::unexpected<std::error_code>(Socket::last_error());
     }
     return address;
 }
 
-void TcpSocket::Shutdown(ShutdownHow how) noexcept {
+void Socket::Shutdown(ShutdownHow how) noexcept {
     if (!is_valid()) {
         return;
     }
@@ -385,7 +404,7 @@ void TcpSocket::Shutdown(ShutdownHow how) noexcept {
     ::shutdown(handle_, what);
 }
 
-void TcpSocket::Close() noexcept {
+void Socket::Close() noexcept {
     if (!is_valid()) {
         return;
     }

@@ -8,9 +8,13 @@
 
 nbio::async::Task<void> RunClient(std::string_view device, std::string_view ip, std::uint16_t port) {
     nbio::net::RdmaResourceManager resources{device};
-    const auto address = nbio::net::Address::FromV4(ip, port);
+    const auto address = nbio::net::Address::FromIPv4(ip, port);
+    if (!address) {
+        std::cerr << "Invalid RDMA address: " << address.error().message() << '\n';
+        co_return;
+    }
     nbio::net::RdmaConnectService connector{resources};
-    auto connected = co_await connector.Connect(address);
+    auto connected = co_await connector.Connect(*address);
     if (!connected) {
         std::cerr << "Failed to connect to RDMA address: " << connected.error().message() << '\n';
         co_return;

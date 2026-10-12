@@ -11,7 +11,7 @@
 #include <nbio/net/payload.hpp>
 #include <nbio/net/tcp_acceptor.hpp>
 #include <nbio/net/tcp_connector.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <optional>
 #include <utility>
 

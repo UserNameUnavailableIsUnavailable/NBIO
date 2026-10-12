@@ -14,7 +14,7 @@
 #include <nbio/fs/file_read_channel.hpp>
 #include <nbio/fs/file_stream.hpp>
 #include <nbio/fs/file_write_channel.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <nbio/notification/notifier_channel.hpp>
 #include <stdexcept>
 #include <string>
@@ -299,7 +299,7 @@ static void AdvanceChannel(T* channel, int result) {
         }
         if (result >= 0) {
             submission->status = net::OperationStatus::kDone;
-            submission->socket = net::TcpSocket::Adopt(static_cast<std::uintptr_t>(result));
+            submission->socket = net::Socket::Adopt(static_cast<std::uintptr_t>(result));
             submission->error_code = {};
             payload.Complete();
         } else if (result == -EAGAIN || result == -EWOULDBLOCK) {

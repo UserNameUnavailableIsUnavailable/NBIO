@@ -335,7 +335,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const auto peer = nbio::net::Address::FromV4(ip, port);
+    const auto peer = nbio::net::Address::FromIPv4(ip, port);
+    if (!peer) {
+        std::printf("Invalid peer address: %s\n", peer.error().message().c_str());
+        return 1;
+    }
     std::printf(
         "mode=%s ip=%s local_ip=%s port=%u device=%s message_bytes=%zu messages=%zu window=%llu multiplexer=%s\n",
         mode.c_str(), ip.c_str(), local_ip.empty() ? "<auto>" : local_ip.c_str(), static_cast<unsigned>(port),
@@ -346,7 +350,7 @@ int main(int argc, char* argv[]) {
     if (mode == "server") {
         RunEngine(
             [&] {
-                nbio::net::RdmaAcceptService acceptor(resources, peer);
+                nbio::net::RdmaAcceptService acceptor(resources, *peer);
                 nbio::async::Run(ServerBenchmark(acceptor, layout, outcome));
             },
             multiplexer, outcome);
@@ -356,11 +360,15 @@ int main(int argc, char* argv[]) {
                 nbio::net::RdmaConnectService connector(resources);
                 if (local_ip.empty()) {
                     nbio::async::Run(
-                        ClientBenchmark(connector, nullptr, peer, layout, message_bytes, messages, outcome));
+                        ClientBenchmark(connector, nullptr, *peer, layout, message_bytes, messages, outcome));
                 } else {
-                    const auto source = nbio::net::Address::FromV4(local_ip, 0);
+                    const auto source = nbio::net::Address::FromIPv4(local_ip, 0);
+                    if (!source) {
+                        outcome.failure = "invalid local address: " + source.error().message();
+                        return;
+                    }
                     nbio::async::Run(
-                        ClientBenchmark(connector, &source, peer, layout, message_bytes, messages, outcome));
+                        ClientBenchmark(connector, &*source, *peer, layout, message_bytes, messages, outcome));
                 }
             },
             multiplexer, outcome);

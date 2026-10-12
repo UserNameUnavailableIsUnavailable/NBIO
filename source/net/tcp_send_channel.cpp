@@ -1,7 +1,7 @@
 #include <nbio/async/coroutine.hpp>
 #include <nbio/runtime/daemon.hpp>
 #include <nbio/net/tcp_send_channel.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <span>
 #include <stdexcept>
 #include <utility>

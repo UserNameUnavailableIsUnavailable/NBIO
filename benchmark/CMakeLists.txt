@@ -7,4 +7,6 @@ function(add_benchmark target)
     target_link_libraries(${target} PRIVATE nbio CLI11::CLI11)
 endfunction()
 
-add_benchmark(rdma_deliver_benchmark)
+if(NBIO_ENABLE_RDMA AND NBIO_ENABLE_IO_URING)
+    add_benchmark(rdma_deliver_benchmark)
+endif()

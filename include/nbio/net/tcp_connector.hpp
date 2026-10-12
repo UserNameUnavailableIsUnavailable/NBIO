@@ -1,12 +1,12 @@
 #pragma once
 
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <nbio/utility/expected.hpp>
 #include <system_error>
 
 namespace nbio::net {
-class TcpConnector final : public TcpSocket {
+class TcpConnector final : public Socket {
    public:
     explicit TcpConnector(Address::Family family = Address::Family::kIPv4);
 
@@ -21,14 +21,6 @@ class TcpConnector final : public TcpSocket {
     friend void swap(TcpConnector& left, TcpConnector& right) noexcept { left.swap(right); }
 
     utility::expected<void, std::error_code> Listen(int backlog = 4096) noexcept = delete;
-    utility::expected<void, std::error_code> Connect(const Address& peer) noexcept;
-    utility::expected<void, std::error_code> StartConnect(const Address& peer) noexcept;
-    utility::expected<void, std::error_code> FinishConnect() noexcept;
-    utility::expected<void, std::error_code> Shutdown(
-        TcpSocket::ShutdownHow how = TcpSocket::ShutdownHow::kBoth) noexcept;
-
-    [[deprecated("Use is_valid instead")]]
-    bool IsValid() const noexcept { return is_valid(); }
 
     [[deprecated("Use ToggleNonBlocking instead")]]
     utility::expected<void, std::error_code> NonBlocking(bool toggle = true) noexcept;
@@ -37,6 +29,6 @@ class TcpConnector final : public TcpSocket {
 
    private:
     friend class TcpAcceptor;
-    explicit TcpConnector(TcpSocket socket) noexcept;
+    explicit TcpConnector(Socket socket) noexcept;
 };
 }  // namespace nbio::net

@@ -3,17 +3,26 @@
 #include <array>
 #include <chrono>
 #include <limits>
+#include <memory>
+#include <nbio/async.hpp>
+#include <nbio/core/uring_multiplexer.hpp>
 #include <nbio/net/tcp_acceptor.hpp>
+#include <nbio/net/tcp_connect_channel.hpp>
 #include <nbio/net/tcp_connector.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <type_traits>
 #include <utility>
+
+#if defined(__linux__)
+#include <poll.h>
+#endif
 
 namespace {
 using nbio::net::Address;
 using nbio::net::TcpAcceptor;
 using nbio::net::TcpConnector;
-using nbio::net::TcpSocket;
+using nbio::net::Socket;
 using namespace std::chrono_literals;
 
 template <typename T>
@@ -22,17 +31,17 @@ concept CanConnect = requires(T& socket, const Address& address) { socket.Connec
 template <typename T>
 concept CanListen = requires(T& socket) { socket.Listen(); };
 
-static_assert(std::is_base_of_v<TcpSocket, TcpAcceptor>);
-static_assert(std::is_base_of_v<TcpSocket, TcpConnector>);
+static_assert(std::is_base_of_v<Socket, TcpAcceptor>);
+static_assert(std::is_base_of_v<Socket, TcpConnector>);
 static_assert(!CanConnect<TcpAcceptor>);
 static_assert(CanConnect<TcpConnector>);
 static_assert(CanListen<TcpAcceptor>);
 static_assert(!CanListen<TcpConnector>);
 
-using Toggle = nbio::utility::expected<void, std::error_code> (TcpSocket::*)(bool) noexcept;
-using Query = nbio::utility::expected<bool, std::error_code> (TcpSocket::*)() const noexcept;
+using Toggle = nbio::utility::expected<void, std::error_code> (Socket::*)(bool) noexcept;
+using Query = nbio::utility::expected<bool, std::error_code> (Socket::*)() const noexcept;
 
-void CheckOption(TcpSocket& socket, Toggle toggle, Query query) {
+void CheckOption(Socket& socket, Toggle toggle, Query query) {
     for (bool enabled : {true, false, true, false}) {
         ASSERT_TRUE((socket.*toggle)(enabled));
         const auto result = (std::as_const(socket).*query)();
@@ -42,13 +51,13 @@ void CheckOption(TcpSocket& socket, Toggle toggle, Query query) {
 }
 }  // namespace
 
-TEST(TcpSocketTesting, BooleanOptionsRoundTrip) {
-    TcpSocket socket{Address::Family::kIPv4, TcpSocket::Type::kStream};
-    CheckOption(socket, &TcpSocket::ToggleReuseAddress, &TcpSocket::IsReuseAddress);
-    CheckOption(socket, &TcpSocket::ToggleKeepAlive, &TcpSocket::IsKeepAlive);
-    CheckOption(socket, &TcpSocket::ToggleNoDelay, &TcpSocket::IsNoDelay);
+TEST(SocketTesting, BooleanOptionsRoundTrip) {
+    Socket socket{Address::Family::kIPv4, Socket::Type::kStream};
+    CheckOption(socket, &Socket::ToggleReuseAddress, &Socket::IsReuseAddress);
+    CheckOption(socket, &Socket::ToggleKeepAlive, &Socket::IsKeepAlive);
+    CheckOption(socket, &Socket::ToggleNoDelay, &Socket::IsNoDelay);
 #if defined(SO_REUSEPORT)
-    CheckOption(socket, &TcpSocket::ToggleReusePort, &TcpSocket::IsReusePort);
+    CheckOption(socket, &Socket::ToggleReusePort, &Socket::IsReusePort);
 #else
     const auto toggle = socket.ToggleReusePort(true);
     ASSERT_FALSE(toggle);
@@ -59,12 +68,12 @@ TEST(TcpSocketTesting, BooleanOptionsRoundTrip) {
 #endif
 }
 
-TEST(TcpSocketTesting, NonBlockingReflectsNativeFlags) {
-    TcpSocket socket{Address::Family::kIPv4, TcpSocket::Type::kStream};
+TEST(SocketTesting, NonBlockingReflectsNativeFlags) {
+    Socket socket{Address::Family::kIPv4, Socket::Type::kStream};
 #if defined(__linux__)
     const int flags = ::fcntl(socket.native_handle(), F_GETFL);
     ASSERT_GE(flags, 0);
-    CheckOption(socket, &TcpSocket::ToggleNonBlocking, &TcpSocket::IsNonBlocking);
+    CheckOption(socket, &Socket::ToggleNonBlocking, &Socket::IsNonBlocking);
     EXPECT_EQ(::fcntl(socket.native_handle(), F_GETFL), flags);
     ASSERT_EQ(::fcntl(socket.native_handle(), F_SETFL, flags | O_NONBLOCK), 0);
     const auto result = socket.IsNonBlocking();
@@ -79,8 +88,8 @@ TEST(TcpSocketTesting, NonBlockingReflectsNativeFlags) {
 #endif
 }
 
-TEST(TcpSocketTesting, LingerRoundTripAndValidation) {
-    TcpSocket socket{Address::Family::kIPv4, TcpSocket::Type::kStream};
+TEST(SocketTesting, LingerRoundTripAndValidation) {
+    Socket socket{Address::Family::kIPv4, Socket::Type::kStream};
     const auto initial = socket.GetLingerDuration();
     ASSERT_TRUE(initial);
     EXPECT_EQ(*initial, 0s);
@@ -113,8 +122,8 @@ TEST(TcpSocketTesting, LingerRoundTripAndValidation) {
     EXPECT_EQ(native.l_onoff, 0);
 }
 
-TEST(TcpSocketTesting, InvalidSocketOptionsReportErrors) {
-    TcpSocket socket;
+TEST(SocketTesting, InvalidSocketOptionsReportErrors) {
+    Socket socket;
     EXPECT_FALSE(socket.ToggleNonBlocking(true));
     EXPECT_FALSE(socket.IsNonBlocking());
     EXPECT_FALSE(socket.ToggleReuseAddress(true));
@@ -130,10 +139,10 @@ TEST(TcpSocketTesting, InvalidSocketOptionsReportErrors) {
     EXPECT_FALSE(socket.TakeError());
 }
 
-TEST(TcpSocketTesting, DerivedSocketsPreserveConnectionAndOwnership) {
+TEST(SocketTesting, DerivedSocketsPreserveConnectionAndOwnership) {
     TcpAcceptor original;
     ASSERT_TRUE(original.ToggleReuseAddress(true));
-    ASSERT_TRUE(original.Bind(Address::FromV4("127.0.0.1", 0)));
+    ASSERT_TRUE(original.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
     const auto handle = original.native_handle();
     TcpAcceptor acceptor{std::move(original)};
     EXPECT_FALSE(original.is_valid());
@@ -144,10 +153,13 @@ TEST(TcpSocketTesting, DerivedSocketsPreserveConnectionAndOwnership) {
     TcpConnector client;
     ASSERT_TRUE(client.ToggleNoDelay(true));
     ASSERT_TRUE(client.Connect(*address));
+    const auto repeated = client.Connect(*address);
+    ASSERT_FALSE(repeated);
+    EXPECT_EQ(repeated.error(), std::errc::already_connected);
     auto accepted = acceptor.Accept();
     ASSERT_TRUE(accepted);
     EXPECT_TRUE(accepted->is_valid());
-    const auto peer = accepted->GetPeerAddress();
+    const auto peer = accepted->GetRemoteAddress();
     ASSERT_TRUE(peer);
     EXPECT_EQ(peer->ip(), "127.0.0.1");
 
@@ -169,10 +181,67 @@ TEST(TcpSocketTesting, DerivedSocketsPreserveConnectionAndOwnership) {
     swap(client, moved);
     EXPECT_EQ(client.native_handle(), moved_handle);
     EXPECT_EQ(moved.native_handle(), client_handle);
-    ASSERT_TRUE(moved.Shutdown());
+    moved.Shutdown();
     const auto eof = client.Receive(received);
     ASSERT_TRUE(eof);
     EXPECT_EQ(*eof, 0U);
     client.Close();
     EXPECT_FALSE(client.is_valid());
 }
+
+#if defined(__linux__)
+TEST(SocketTesting, NonBlockingConnectReturnsNativeInProgress) {
+    TcpAcceptor acceptor;
+    ASSERT_TRUE(acceptor.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
+    const auto address = acceptor.GetLocalAddress();
+    ASSERT_TRUE(address);
+    TcpConnector client;
+    ASSERT_TRUE(client.ToggleNonBlocking(true));
+    const auto connected = client.Connect(*address);
+    ASSERT_FALSE(connected);
+    EXPECT_EQ(connected.error(), std::errc::operation_in_progress);
+    ::pollfd descriptor{static_cast<int>(client.native_handle()), POLLOUT, 0};
+    ASSERT_EQ(::poll(&descriptor, 1, 1000), 1);
+    ASSERT_TRUE(client.TakeError());
+    EXPECT_TRUE(client.GetRemoteAddress());
+}
+#endif
+
+namespace {
+nbio::async::Task<void> CheckAsyncConnect(const Address& target, bool succeeds) {
+    nbio::net::TcpConnectChannel channel{TcpConnector{}, nbio::runtime::Daemon::multiplexer(),
+                                         nbio::runtime::Daemon::scheduler()};
+    auto connected = co_await channel.Connect(target);
+    EXPECT_EQ(connected.has_value(), succeeds);
+    if (connected) {
+        EXPECT_TRUE(connected->GetRemoteAddress());
+        const auto repeated = co_await channel.Connect(target);
+        EXPECT_FALSE(repeated);
+    } else {
+        EXPECT_EQ(connected.error(), std::errc::connection_refused);
+    }
+}
+
+void CheckAsyncConnections() {
+    TcpAcceptor acceptor;
+    ASSERT_TRUE(acceptor.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
+    const auto address = acceptor.GetLocalAddress();
+    ASSERT_TRUE(address);
+    nbio::async::Run(CheckAsyncConnect(*address, true));
+
+    Socket reserved{Address::Family::kIPv4, Socket::Type::kStream};
+    ASSERT_TRUE(reserved.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
+    const auto refused = reserved.GetLocalAddress();
+    ASSERT_TRUE(refused);
+    nbio::async::Run(CheckAsyncConnect(*refused, false));
+}
+}  // namespace
+
+TEST(SocketTesting, AsyncConnectPropagatesSuccessAndRefusal) { CheckAsyncConnections(); }
+
+#if defined(NBIO_ENABLE_IO_URING)
+TEST(SocketTesting, AsyncConnectPropagatesSuccessAndRefusalOnURing) {
+    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
+    CheckAsyncConnections();
+}
+#endif

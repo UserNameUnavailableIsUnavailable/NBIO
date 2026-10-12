@@ -25,4 +25,4 @@
 #include <nbio/net/tcp_receive_channel.hpp>
 #include <nbio/net/tcp_send_channel.hpp>
 #include <nbio/net/tcp_session_service.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>

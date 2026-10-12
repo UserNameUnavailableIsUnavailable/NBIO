@@ -15,7 +15,7 @@
 #include <nbio/fs/file_read_channel.hpp>
 #include <nbio/fs/file_stream.hpp>
 #include <nbio/fs/file_write_channel.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <nbio/notification/notifier_channel.hpp>
 #include <stdexcept>
 #include <system_error>
@@ -462,7 +462,7 @@ static void do_accept_connection(TcpAcceptChannel* channel) {
                 }
             } else {
                 submission->status = net::OperationStatus::kDone;
-                submission->socket = net::TcpSocket::Adopt(static_cast<std::uintptr_t>(fd));
+                submission->socket = net::Socket::Adopt(static_cast<std::uintptr_t>(fd));
                 submission->error_code = {};
                 payload.Complete();
             }

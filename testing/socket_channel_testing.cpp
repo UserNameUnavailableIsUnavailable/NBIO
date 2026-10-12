@@ -19,7 +19,7 @@
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_accept_service.hpp>
 #include <nbio/net/tcp_session_service.hpp>
-#include <nbio/net/tcp_socket.hpp>
+#include <nbio/net/socket.hpp>
 #include <span>
 #include <string>
 #include <vector>
@@ -35,7 +35,9 @@ constexpr std::size_t kChunkBytes = 512;
 // listener is closed when the test ends.
 constexpr std::uint16_t kTestPort = 34567;
 
-nbio::net::Address TestAddress() { return nbio::net::Address::FromV4("127.0.0.1", kTestPort); }
+nbio::net::Address TestAddress() {
+    return nbio::net::Address::FromIPv4("127.0.0.1", kTestPort).value();
+}
 
 // The bytes one writer's chunk turns into, so the test and the writer agree on what
 // was sent without either of them counting by hand.
@@ -60,10 +62,10 @@ nbio::async::Task<void> receive_chunk(std::shared_ptr<nbio::net::TcpSessionServi
 
 // Connects `count` clients, which sit in the listener's backlog until somebody
 // accepts them.
-std::vector<nbio::net::TcpSocket> connect_clients(const nbio::net::Address& address, std::size_t count) {
-    std::vector<nbio::net::TcpSocket> clients;
+std::vector<nbio::net::Socket> connect_clients(const nbio::net::Address& address, std::size_t count) {
+    std::vector<nbio::net::Socket> clients;
     for (std::size_t index = 0; index < count; ++index) {
-        auto socket = nbio::net::TcpSocket{address.family(), nbio::net::TcpSocket::Type::kStream};
+        auto socket = nbio::net::Socket{address.family(), nbio::net::Socket::Type::kStream};
         (void)socket.Connect(address);
         clients.push_back(std::move(socket));
     }
@@ -107,7 +109,7 @@ nbio::async::Task<void> accept_and_send(nbio::net::TcpAcceptService& acceptor) {
     }
 }
 
-nbio::async::Task<void> accept_and_receive(nbio::net::TcpAcceptService& acceptor, nbio::net::TcpSocket& client,
+nbio::async::Task<void> accept_and_receive(nbio::net::TcpAcceptService& acceptor, nbio::net::Socket& client,
                                            const std::string& sent, std::vector<std::string>& received,
                                            std::size_t bytes_per_receiver) {
     auto connection = co_await acceptor.Accept();
@@ -133,7 +135,7 @@ nbio::async::Task<void> accept_and_receive(nbio::net::TcpAcceptService& acceptor
 }
 }  // namespace
 
-TEST(TcpSocketChannelTesting, OneReadinessEventServesEveryWaitingAccept) {
+TEST(SocketChannelTesting, OneReadinessEventServesEveryWaitingAccept) {
     const auto address = TestAddress();
     nbio::net::TcpAcceptService acceptor{address};
 
@@ -149,7 +151,7 @@ TEST(TcpSocketChannelTesting, OneReadinessEventServesEveryWaitingAccept) {
 
 // The completion backend takes connections one at a time instead of draining, and
 // the queue is what keeps every waiter in line behind them.
-TEST(TcpSocketChannelTesting, EveryWaitingAcceptIsAnsweredOnURing) {
+TEST(SocketChannelTesting, EveryWaitingAcceptIsAnsweredOnURing) {
     nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
 
     const auto address = TestAddress();
@@ -163,11 +165,11 @@ TEST(TcpSocketChannelTesting, EveryWaitingAcceptIsAnsweredOnURing) {
     EXPECT_EQ(accepted, kWriters) << "every waiter has to be answered";
 }
 
-TEST(TcpSocketChannelTesting, SendsFromManyCoroutinesKeepTheOrderTheyQueuedIn) {
+TEST(SocketChannelTesting, SendsFromManyCoroutinesKeepTheOrderTheyQueuedIn) {
     const auto address = TestAddress();
     nbio::net::TcpAcceptService acceptor{address};
 
-    auto client = nbio::net::TcpSocket{address.family(), nbio::net::TcpSocket::Type::kStream};
+    auto client = nbio::net::Socket{address.family(), nbio::net::Socket::Type::kStream};
     ASSERT_TRUE(client.Connect(address));
 
     nbio::async::Run(accept_and_send(acceptor));
@@ -212,11 +214,11 @@ TEST(TcpSocketChannelTesting, SendsFromManyCoroutinesKeepTheOrderTheyQueuedIn) {
     }
 }
 
-TEST(TcpSocketChannelTesting, ReceivesFromManyCoroutinesShareWhatArrived) {
+TEST(SocketChannelTesting, ReceivesFromManyCoroutinesShareWhatArrived) {
     const auto address = TestAddress();
     nbio::net::TcpAcceptService acceptor{address};
 
-    auto client = nbio::net::TcpSocket{address.family(), nbio::net::TcpSocket::Type::kStream};
+    auto client = nbio::net::Socket{address.family(), nbio::net::Socket::Type::kStream};
     ASSERT_TRUE(client.Connect(address));
 
     constexpr std::size_t kReceivers = 4;
