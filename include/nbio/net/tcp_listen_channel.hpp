@@ -9,7 +9,7 @@
 #include <nbio/core/types.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/payload.hpp>
-#include <nbio/net/tcp_acceptor.hpp>
+#include <nbio/net/tcp_listener.hpp>
 #include <nbio/net/tcp_connector.hpp>
 #include <nbio/net/socket.hpp>
 #include <optional>
@@ -18,13 +18,13 @@
 namespace nbio::net {
 class AcceptAwaiter;
 
-class TcpAcceptChannel final : public nbio::core::Channel<TcpAcceptChannel> {
+class TcpListenChannel final : public nbio::core::Channel<TcpListenChannel> {
    public:
-    using Payload = detail::CommunicationPayload<TcpAcceptChannel>;
+    using Payload = detail::CommunicationPayload<TcpListenChannel>;
 
-    TcpAcceptChannel(nbio::net::TcpAcceptor& acceptor, nbio::core::Multiplexer& multiplexer,
+    TcpListenChannel(nbio::net::TcpListener& listener, nbio::core::Multiplexer& multiplexer,
                      nbio::async::Scheduler& scheduler);
-    ~TcpAcceptChannel() noexcept;
+    ~TcpListenChannel() noexcept;
 
     // The next peer that connects, as the connection it arrived on and the address it
     // came from: the socket is accepted on the listener's descriptor by the backend,
@@ -38,8 +38,8 @@ class TcpAcceptChannel final : public nbio::core::Channel<TcpAcceptChannel> {
     Payload& Submit();
     void Complete();
 
-    net::TcpAcceptor& acceptor() noexcept { return acceptor_; }
-    const net::TcpAcceptor& acceptor() const noexcept { return acceptor_; }
+    net::TcpListener& listener() noexcept { return listener_; }
+    const net::TcpListener& listener() const noexcept { return listener_; }
 
    private:
     friend class AcceptAwaiter;
@@ -48,7 +48,7 @@ class TcpAcceptChannel final : public nbio::core::Channel<TcpAcceptChannel> {
     // armed is what tells the backend to look at the channel.
     void Prepare(async::Coroutine waiter, net::Communication* result);
 
-    nbio::net::TcpAcceptor& acceptor_;
+    nbio::net::TcpListener& listener_;
     // One waiter per communication slot, in queue order.
     std::deque<async::Coroutine> waiters_;
     Payload payload_{};

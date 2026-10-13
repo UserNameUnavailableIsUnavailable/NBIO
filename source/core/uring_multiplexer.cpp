@@ -22,12 +22,12 @@
 #include <type_traits>
 #include <variant>
 #if defined(NBIO_ENABLE_RDMA)
-#include <nbio/net/rdma_accept_channel.hpp>
+#include <nbio/net/rdma_listen_channel.hpp>
 #include <nbio/net/rdma_connect_channel.hpp>
 #include <nbio/net/rdma_receive_channel.hpp>
 #include <nbio/net/rdma_send_channel.hpp>
 #endif
-#include <nbio/net/tcp_accept_channel.hpp>
+#include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/tcp_connect_channel.hpp>
 #include <nbio/net/tcp_receive_channel.hpp>
 #include <nbio/net/tcp_send_channel.hpp>
@@ -49,11 +49,11 @@ using namespace nbio::time;
                             std::string(what) + ": " + std::system_category().message(error));
 
 using ChannelVariant =
-    std::variant<TcpReceiveChannel*, TcpSendChannel*, FileReadChannel*, FileWriteChannel*, TcpAcceptChannel*,
+    std::variant<TcpReceiveChannel*, TcpSendChannel*, FileReadChannel*, FileWriteChannel*, TcpListenChannel*,
                  TimerChannel*, NotifierChannel*, SystemSignalChannel*, TcpConnectChannel*
 #if defined(NBIO_ENABLE_RDMA)
                  ,
-                 RdmaAcceptChannel*, RdmaConnectChannel*, RdmaSendChannel*, RdmaReceiveChannel*
+                 RdmaListenChannel*, RdmaConnectChannel*, RdmaSendChannel*, RdmaReceiveChannel*
 #endif
                  >;
 
@@ -68,7 +68,7 @@ static ChannelVariant as_variant(ChannelBase* channel) {
         case ChannelType::kWrite:
             return static_cast<FileWriteChannel*>(channel);
         case ChannelType::kAccept:
-            return static_cast<TcpAcceptChannel*>(channel);
+            return static_cast<TcpListenChannel*>(channel);
         case ChannelType::kTimer:
             return static_cast<TimerChannel*>(channel);
         case ChannelType::kNotify:
@@ -77,7 +77,7 @@ static ChannelVariant as_variant(ChannelBase* channel) {
             return static_cast<SystemSignalChannel*>(channel);
 #if defined(NBIO_ENABLE_RDMA)
         case ChannelType::kRdmaAccept:
-            return static_cast<RdmaAcceptChannel*>(channel);
+            return static_cast<RdmaListenChannel*>(channel);
         case ChannelType::kRdmaConnect:
             return static_cast<RdmaConnectChannel*>(channel);
 #endif
@@ -291,7 +291,7 @@ static void AdvanceChannel(T* channel, int result) {
                 }
             }
         }
-    } else if constexpr (std::is_same_v<ChannelType, TcpAcceptChannel>) {
+    } else if constexpr (std::is_same_v<ChannelType, TcpListenChannel>) {
         auto& payload = channel->Submit();
         auto* submission = payload.NextSubmission();
         if (submission == nullptr) {
@@ -385,7 +385,7 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
         ::io_uring_prep_writev(sqe, channel->native_handle(), vectors.data(), static_cast<unsigned>(vectors.size()),
                                static_cast<__u64>(payload.offset()));
         return sqe;
-    } else if constexpr (std::is_same_v<ChannelType, TcpAcceptChannel>) {
+    } else if constexpr (std::is_same_v<ChannelType, TcpListenChannel>) {
         auto& payload = channel->Submit();
         if (payload.size() == 0) {
             return nullptr;
@@ -412,7 +412,7 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
         auto& payload = channel->Submit();
         return prepare_poll_sqe(ring, channel, payload);
 #if defined(NBIO_ENABLE_RDMA)
-    } else if constexpr (std::is_same_v<ChannelType, RdmaAcceptChannel>) {
+    } else if constexpr (std::is_same_v<ChannelType, RdmaListenChannel>) {
         auto& payload = channel->Submit();
         return prepare_poll_sqe(ring, channel, payload);
     } else if constexpr (std::is_same_v<ChannelType, RdmaConnectChannel>) {

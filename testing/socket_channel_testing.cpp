@@ -17,7 +17,7 @@
 #include <nbio/runtime/daemon.hpp>
 #include <nbio/core/uring_multiplexer.hpp>
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_accept_service.hpp>
+#include <nbio/net/tcp_listen_service.hpp>
 #include <nbio/net/tcp_session_service.hpp>
 #include <nbio/net/socket.hpp>
 #include <span>
@@ -72,26 +72,26 @@ std::vector<nbio::net::Socket> connect_clients(const nbio::net::Address& address
     return clients;
 }
 
-nbio::async::Task<void> accept_one(nbio::net::TcpAcceptService& acceptor, std::size_t& accepted) {
-    auto connection = co_await acceptor.Accept();
+nbio::async::Task<void> accept_one(nbio::net::TcpListenService& listener, std::size_t& accepted) {
+    auto connection = co_await listener.Accept();
     if (connection) {
         ++accepted;
     }
 }
 
-nbio::async::Task<void> accept_all(nbio::net::TcpAcceptService& acceptor, std::size_t& accepted) {
+nbio::async::Task<void> accept_all(nbio::net::TcpListenService& listener, std::size_t& accepted) {
     std::vector<nbio::async::CoroutineJoinHandle> waiters;
     waiters.reserve(kWriters);
     for (std::size_t index = 0; index < kWriters; ++index) {
-        waiters.push_back(nbio::async::Spawn(accept_one(acceptor, accepted)));
+        waiters.push_back(nbio::async::Spawn(accept_one(listener, accepted)));
     }
     for (const nbio::async::CoroutineJoinHandle& waiter : waiters) {
         co_await waiter;
     }
 }
 
-nbio::async::Task<void> accept_and_send(nbio::net::TcpAcceptService& acceptor) {
-    auto connection = co_await acceptor.Accept();
+nbio::async::Task<void> accept_and_send(nbio::net::TcpListenService& listener) {
+    auto connection = co_await listener.Accept();
     if (!connection) {
         co_return;
     }
@@ -109,10 +109,10 @@ nbio::async::Task<void> accept_and_send(nbio::net::TcpAcceptService& acceptor) {
     }
 }
 
-nbio::async::Task<void> accept_and_receive(nbio::net::TcpAcceptService& acceptor, nbio::net::Socket& client,
+nbio::async::Task<void> accept_and_receive(nbio::net::TcpListenService& listener, nbio::net::Socket& client,
                                            const std::string& sent, std::vector<std::string>& received,
                                            std::size_t bytes_per_receiver) {
-    auto connection = co_await acceptor.Accept();
+    auto connection = co_await listener.Accept();
     if (!connection) {
         co_return;
     }
@@ -137,14 +137,14 @@ nbio::async::Task<void> accept_and_receive(nbio::net::TcpAcceptService& acceptor
 
 TEST(SocketChannelTesting, OneReadinessEventServesEveryWaitingAccept) {
     const auto address = TestAddress();
-    nbio::net::TcpAcceptService acceptor{address};
+    nbio::net::TcpListenService listener{address};
 
     // The clients connect before anybody accepts, so one readiness event later all
     // of them are there to be taken.
     auto clients = connect_clients(address, kWriters);
 
     std::size_t accepted = 0;
-    nbio::async::Run(accept_all(acceptor, accepted));
+    nbio::async::Run(accept_all(listener, accepted));
 
     EXPECT_EQ(accepted, kWriters) << "every waiter has to be answered";
 }
@@ -155,24 +155,24 @@ TEST(SocketChannelTesting, EveryWaitingAcceptIsAnsweredOnURing) {
     nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
 
     const auto address = TestAddress();
-    nbio::net::TcpAcceptService acceptor{address};
+    nbio::net::TcpListenService listener{address};
 
     auto clients = connect_clients(address, kWriters);
 
     std::size_t accepted = 0;
-    nbio::async::Run(accept_all(acceptor, accepted));
+    nbio::async::Run(accept_all(listener, accepted));
 
     EXPECT_EQ(accepted, kWriters) << "every waiter has to be answered";
 }
 
 TEST(SocketChannelTesting, SendsFromManyCoroutinesKeepTheOrderTheyQueuedIn) {
     const auto address = TestAddress();
-    nbio::net::TcpAcceptService acceptor{address};
+    nbio::net::TcpListenService listener{address};
 
     auto client = nbio::net::Socket{address.family(), nbio::net::Socket::Type::kStream};
     ASSERT_TRUE(client.Connect(address));
 
-    nbio::async::Run(accept_and_send(acceptor));
+    nbio::async::Run(accept_and_send(listener));
 
     // Read the whole stream back: everything every writer asked to send, and in an
     // order that keeps each writer's own chunks in the order it wrote them.
@@ -216,7 +216,7 @@ TEST(SocketChannelTesting, SendsFromManyCoroutinesKeepTheOrderTheyQueuedIn) {
 
 TEST(SocketChannelTesting, ReceivesFromManyCoroutinesShareWhatArrived) {
     const auto address = TestAddress();
-    nbio::net::TcpAcceptService acceptor{address};
+    nbio::net::TcpListenService listener{address};
 
     auto client = nbio::net::Socket{address.family(), nbio::net::Socket::Type::kStream};
     ASSERT_TRUE(client.Connect(address));
@@ -228,7 +228,7 @@ TEST(SocketChannelTesting, ReceivesFromManyCoroutinesShareWhatArrived) {
     const std::string sent(kBytes, 'x');
     std::vector<std::string> received(kReceivers);
 
-    nbio::async::Run(accept_and_receive(acceptor, client, sent, received, kBytesPerReceiver));
+    nbio::async::Run(accept_and_receive(listener, client, sent, received, kBytesPerReceiver));
 
     // Whatever arrived was handed to the waiters in the order they queued, so each
     // one of them has some of it and together they have all of it.

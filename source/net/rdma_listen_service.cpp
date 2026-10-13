@@ -1,21 +1,21 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
-#include <nbio/net/rdma_accept_service.hpp>
+#include <nbio/net/rdma_listen_service.hpp>
 #include <utility>
 
 namespace nbio::net {
-RdmaAcceptService::RdmaAcceptService(RdmaResourceManager& resources, const Address& address, int backlog)
-    : acceptor_(resources),
-      channel_(acceptor_, nbio::runtime::Daemon::multiplexer(), nbio::runtime::Daemon::scheduler()) {
-    if (auto reused = acceptor_.ReuseAddress(true); !reused) [[unlikely]] {
+RdmaListenService::RdmaListenService(RdmaResourceManager& resources, const Address& address, int backlog)
+    : listener_(resources),
+      channel_(listener_, nbio::runtime::Daemon::multiplexer(), nbio::runtime::Daemon::scheduler()) {
+    if (auto reused = listener_.ReuseAddress(true); !reused) [[unlikely]] {
         throw std::system_error(reused.error(), "Failed to enable RDMA address reuse");
     }
-    if (auto listening = acceptor_.Listen(address, backlog); !listening) [[unlikely]] {
+    if (auto listening = listener_.Listen(address, backlog); !listening) [[unlikely]] {
         throw std::system_error(listening.error(), "Failed to listen on RDMA address");
     }
 }
 
-nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> RdmaAcceptService::Accept() {
+nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> RdmaListenService::Accept() {
     auto accepted = co_await channel_.accept();
     if (!accepted) [[unlikely]] {
         co_return utility::unexpected(accepted.error());

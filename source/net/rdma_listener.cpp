@@ -4,7 +4,7 @@
 
 #include <cerrno>
 #include <nbio/net/address.hpp>
-#include <nbio/net/rdma_acceptor.hpp>
+#include <nbio/net/rdma_listener.hpp>
 #include <stdexcept>
 #include <utility>
 
@@ -31,7 +31,7 @@ CmEventStatus PollCmEvent(::rdma_event_channel* channel, ::rdma_cm_event** event
 }
 }  // namespace
 
-RdmaAcceptor::RdmaAcceptor(RdmaResourceManager& resources) : resources_(&resources) {
+RdmaListener::RdmaListener(RdmaResourceManager& resources) : resources_(&resources) {
     // The id is created on the event channel, so that has to exist first. Nothing
     // else is created here: what a connection is built from comes from the manager,
     // and it is only needed once one asks to be admitted.
@@ -46,7 +46,7 @@ RdmaAcceptor::RdmaAcceptor(RdmaResourceManager& resources) : resources_(&resourc
     }
 }
 
-RdmaResult<void> RdmaAcceptor::Listen(net::Address address, int backlog) noexcept {
+RdmaResult<void> RdmaListener::Listen(net::Address address, int backlog) noexcept {
     address_ = std::move(address);
     if (::rdma_bind_addr(communication_id_, address_.storage<::sockaddr>())) [[unlikely]] {
         return utility::unexpected(Failing());
@@ -63,7 +63,7 @@ RdmaResult<void> RdmaAcceptor::Listen(net::Address address, int backlog) noexcep
     return {};
 }
 
-RdmaResult<RdmaAcceptResult> RdmaAcceptor::Accept() noexcept {
+RdmaResult<RdmaAcceptResult> RdmaListener::Accept() noexcept {
     while (true) {
         ::rdma_cm_event* event{nullptr};
         switch (PollCmEvent(event_channel_, &event)) {
@@ -91,7 +91,7 @@ RdmaResult<RdmaAcceptResult> RdmaAcceptor::Accept() noexcept {
             return utility::unexpected(make_error_code(RdmaErrc::kDeviceMismatch));
         }
 
-        // An acceptor gets a new connection request on the event channel, then it creates a new channel for that
+        // An listener gets a new connection request on the event channel, then it creates a new channel for that
         // connection, moving the connector's id to that event channel.
         ::rdma_event_channel* channel = ::rdma_create_event_channel();
         if (!channel) [[unlikely]] {
@@ -136,7 +136,7 @@ RdmaResult<RdmaAcceptResult> RdmaAcceptor::Accept() noexcept {
     }
 }
 
-RdmaResult<void> RdmaAcceptor::NonBlocking(bool toggle) noexcept {
+RdmaResult<void> RdmaListener::NonBlocking(bool toggle) noexcept {
     const int flags = ::fcntl(event_channel_->fd, F_GETFL, 0);
     if (flags < 0 || ::fcntl(event_channel_->fd, F_SETFL, toggle ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK)) < 0)
         [[unlikely]] {
@@ -144,7 +144,7 @@ RdmaResult<void> RdmaAcceptor::NonBlocking(bool toggle) noexcept {
     }
     return {};
 }
-RdmaResult<void> RdmaAcceptor::ReuseAddress(bool enabled) noexcept {
+RdmaResult<void> RdmaListener::ReuseAddress(bool enabled) noexcept {
     int reuse = enabled ? 1 : 0;
     auto ret = ::rdma_set_option(communication_id_, RDMA_OPTION_ID, RDMA_OPTION_ID_REUSEADDR, &reuse, sizeof(reuse));
     if (ret != 0) {
@@ -153,7 +153,7 @@ RdmaResult<void> RdmaAcceptor::ReuseAddress(bool enabled) noexcept {
     return {};
 }
 
-RdmaAcceptor::~RdmaAcceptor() noexcept {
+RdmaListener::~RdmaListener() noexcept {
     // Connections borrow the manager's device, domain and chunks, so they are all
     // gone before it is: this listener gives back its own id and its own channel.
     if (communication_id_) {

@@ -23,13 +23,13 @@
 #include <utility>
 #include <variant>
 #if defined(NBIO_ENABLE_RDMA)
-#include <nbio/net/rdma_accept_channel.hpp>
+#include <nbio/net/rdma_listen_channel.hpp>
 #include <nbio/net/rdma_connect_channel.hpp>
 #include <nbio/net/rdma_receive_channel.hpp>
 #include <nbio/net/rdma_send_channel.hpp>
 #endif  // defined(NBIO_ENABLE_RDMA)
 #include <nbio/core/types.hpp>
-#include <nbio/net/tcp_accept_channel.hpp>
+#include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/tcp_connect_channel.hpp>
 #include <nbio/net/tcp_receive_channel.hpp>
 #include <nbio/net/tcp_send_channel.hpp>
@@ -45,11 +45,11 @@ using namespace nbio::signal;
 using namespace nbio::time;
 
 using ChannelVariant =
-    std::variant<TcpReceiveChannel*, TcpSendChannel*, TcpAcceptChannel*, FileReadChannel*, FileWriteChannel*,
+    std::variant<TcpReceiveChannel*, TcpSendChannel*, TcpListenChannel*, FileReadChannel*, FileWriteChannel*,
                  TimerChannel*, NotifierChannel*, SystemSignalChannel*, TcpConnectChannel*
 #if defined(NBIO_ENABLE_RDMA)
                  ,
-                 RdmaAcceptChannel*, RdmaConnectChannel*, RdmaSendChannel*, RdmaReceiveChannel*
+                 RdmaListenChannel*, RdmaConnectChannel*, RdmaSendChannel*, RdmaReceiveChannel*
 #endif
                  >;
 
@@ -60,7 +60,7 @@ static ChannelVariant as_variant(ChannelBase* channel) {
         case ChannelType::kSend:
             return static_cast<TcpSendChannel*>(channel);
         case ChannelType::kAccept:
-            return static_cast<TcpAcceptChannel*>(channel);
+            return static_cast<TcpListenChannel*>(channel);
         case ChannelType::kConnect:
             return static_cast<TcpConnectChannel*>(channel);
         case ChannelType::kRead:
@@ -75,7 +75,7 @@ static ChannelVariant as_variant(ChannelBase* channel) {
             return static_cast<SystemSignalChannel*>(channel);
 #if defined(NBIO_ENABLE_RDMA)
         case ChannelType::kRdmaAccept:
-            return static_cast<RdmaAcceptChannel*>(channel);
+            return static_cast<RdmaListenChannel*>(channel);
         case ChannelType::kRdmaConnect:
             return static_cast<RdmaConnectChannel*>(channel);
         case ChannelType::kRdmaSend:
@@ -94,7 +94,7 @@ static decltype(auto) visit_channel(ChannelBase* channel, Visitor&& visitor) {
 
 static void do_receive_data(TcpReceiveChannel* channel);
 static void do_send_data(TcpSendChannel* channel);
-static void do_accept_connection(TcpAcceptChannel* channel);
+static void do_accept_connection(TcpListenChannel* channel);
 static void do_read_file(FileReadChannel* channel);
 static void do_write_file(FileWriteChannel* channel);
 
@@ -108,7 +108,7 @@ static void CompleteChannel(T* channel) {
     } else if constexpr (std::is_same_v<ChannelType, TcpSendChannel>) {
         do_send_data(channel);
         channel->Complete();
-    } else if constexpr (std::is_same_v<ChannelType, TcpAcceptChannel>) {
+    } else if constexpr (std::is_same_v<ChannelType, TcpListenChannel>) {
         do_accept_connection(channel);
         channel->Complete();
     } else if constexpr (std::is_same_v<ChannelType, FileReadChannel>) {
@@ -434,7 +434,7 @@ static void do_send_data(TcpSendChannel* channel) {
     }
 }
 
-static void do_accept_connection(TcpAcceptChannel* channel) {
+static void do_accept_connection(TcpListenChannel* channel) {
     auto& payload = channel->Submit();
     if (payload.size() == 0) {
         return;  // nobody is waiting

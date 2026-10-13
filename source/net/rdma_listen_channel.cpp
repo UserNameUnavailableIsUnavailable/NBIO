@@ -1,7 +1,7 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
 #include <nbio/async/coroutine.hpp>
-#include <nbio/net/rdma_accept_channel.hpp>
+#include <nbio/net/rdma_listen_channel.hpp>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
@@ -10,7 +10,7 @@ namespace nbio::net {
 namespace detail {
 class RdmaAcceptAwaiter {
    public:
-    explicit RdmaAcceptAwaiter(RdmaAcceptChannel& channel) : channel_(channel) {}
+    explicit RdmaAcceptAwaiter(RdmaListenChannel& channel) : channel_(channel) {}
 
     bool await_ready() const noexcept { return false; }
 
@@ -35,35 +35,35 @@ class RdmaAcceptAwaiter {
     }
 
    private:
-    RdmaAcceptChannel& channel_;
+    RdmaListenChannel& channel_;
 };
 }  // namespace detail
 
-RdmaAcceptChannel::RdmaAcceptChannel(nbio::net::RdmaAcceptor& acceptor, nbio::core::Multiplexer& multiplexer,
+RdmaListenChannel::RdmaListenChannel(nbio::net::RdmaListener& listener, nbio::core::Multiplexer& multiplexer,
                                      nbio::async::Scheduler& scheduler)
-    : nbio::core::Channel<RdmaAcceptChannel>(nbio::core::ChannelType::kRdmaAccept,
-                                             static_cast<std::uintptr_t>(acceptor.event_channel_handle()), multiplexer,
+    : nbio::core::Channel<RdmaListenChannel>(nbio::core::ChannelType::kRdmaAccept,
+                                             static_cast<std::uintptr_t>(listener.event_channel_handle()), multiplexer,
                                              scheduler),
-      acceptor_(acceptor) {
-    // The acceptor has to be polled rather than waited on, and this is the one
+      listener_(listener) {
+    // The listener has to be polled rather than waited on, and this is the one
     // failure the channel cannot report through a job -- there is no waiter to
     // report it to yet. A constructor is the one place still allowed to throw.
-    if (auto armed = acceptor_.NonBlocking(true); !armed) [[unlikely]]
+    if (auto armed = listener_.NonBlocking(true); !armed) [[unlikely]]
     {
-        throw std::system_error(armed.error(), "Failed to make the rdma acceptor non-blocking");
+        throw std::system_error(armed.error(), "Failed to make the rdma listener non-blocking");
     }
     // Registered on the first arm(): nothing to watch until a wait queues.
 }
 
-RdmaAcceptChannel::~RdmaAcceptChannel() noexcept { multiplexer_.DeleteChannel(this); }
+RdmaListenChannel::~RdmaListenChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
-nbio::async::Task<RdmaResult<RdmaConnector>> RdmaAcceptChannel::accept() {
+nbio::async::Task<RdmaResult<RdmaConnector>> RdmaListenChannel::accept() {
     co_return co_await detail::RdmaAcceptAwaiter{*this};
 }
 
-RdmaAcceptChannel::Payload& RdmaAcceptChannel::Submit() { return payload_; }
+RdmaListenChannel::Payload& RdmaListenChannel::Submit() { return payload_; }
 
-void RdmaAcceptChannel::Complete() {
+void RdmaListenChannel::Complete() {
     auto& payload = payload_;
     payload.ReleasePoll();
 
@@ -71,7 +71,7 @@ void RdmaAcceptChannel::Complete() {
         return;
     }
 
-    auto accepted = acceptor_.Accept();
+    auto accepted = listener_.Accept();
     if (!accepted) [[unlikely]] {
         job().connection.reset();
         job().error = accepted.error();

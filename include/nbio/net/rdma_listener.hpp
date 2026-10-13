@@ -21,14 +21,14 @@ struct RdmaAcceptResult {
     std::optional<RdmaConnector> connection{};
 };
 
-class RdmaAcceptor {
+class RdmaListener {
    public:
     using Handle = int;
-    explicit RdmaAcceptor(RdmaResourceManager& resources);
-    ~RdmaAcceptor() noexcept;
+    explicit RdmaListener(RdmaResourceManager& resources);
+    ~RdmaListener() noexcept;
 
-    RdmaAcceptor(const RdmaAcceptor&) = delete;
-    RdmaAcceptor& operator=(const RdmaAcceptor&) = delete;
+    RdmaListener(const RdmaListener&) = delete;
+    RdmaListener& operator=(const RdmaListener&) = delete;
 
     RdmaResult<void> Listen(net::Address address, int backlog = 4096) noexcept;
 

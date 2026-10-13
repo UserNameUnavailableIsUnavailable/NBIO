@@ -28,7 +28,7 @@ class TcpConnector final : public Socket {
     utility::expected<void, std::error_code> ReuseAddress(bool toggle = true) noexcept;
 
    private:
-    friend class TcpAcceptor;
+    friend class TcpListener;
     explicit TcpConnector(Socket socket) noexcept;
 };
 }  // namespace nbio::net

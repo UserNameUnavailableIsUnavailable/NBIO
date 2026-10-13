@@ -12,16 +12,16 @@ nbio::async::Task<void> RunServer(std::string_view device, std::string_view ip, 
         std::cerr << "Invalid RDMA address: " << address.error().message() << '\n';
         co_return;
     }
-    std::unique_ptr<nbio::net::RdmaAcceptService> acceptor;
+    std::unique_ptr<nbio::net::RdmaListenService> listener;
     try {
-        acceptor = std::make_unique<nbio::net::RdmaAcceptService>(resources, *address);
+        listener = std::make_unique<nbio::net::RdmaListenService>(resources, *address);
     } catch (const std::exception& e) {
         std::cerr << "Failed to start RDMA server: " << e.what() << '\n';
         co_return;
     }
     std::cout << "Listening on RDMA " << *(address->ip()) << ':' << *(address->port()) << '\n';
 
-    auto accepted = co_await acceptor->Accept();
+    auto accepted = co_await listener->Accept();
     if (!accepted) {
         std::cerr << "Failed to accept RDMA connection: " << accepted.error().message() << '\n';
         co_return;

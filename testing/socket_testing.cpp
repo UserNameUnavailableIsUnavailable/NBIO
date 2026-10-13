@@ -6,7 +6,7 @@
 #include <memory>
 #include <nbio/async.hpp>
 #include <nbio/core/uring_multiplexer.hpp>
-#include <nbio/net/tcp_acceptor.hpp>
+#include <nbio/net/tcp_listener.hpp>
 #include <nbio/net/tcp_connect_channel.hpp>
 #include <nbio/net/tcp_connector.hpp>
 #include <nbio/net/socket.hpp>
@@ -20,7 +20,7 @@
 
 namespace {
 using nbio::net::Address;
-using nbio::net::TcpAcceptor;
+using nbio::net::TcpListener;
 using nbio::net::TcpConnector;
 using nbio::net::Socket;
 using namespace std::chrono_literals;
@@ -31,11 +31,11 @@ concept CanConnect = requires(T& socket, const Address& address) { socket.Connec
 template <typename T>
 concept CanListen = requires(T& socket) { socket.Listen(); };
 
-static_assert(std::is_base_of_v<Socket, TcpAcceptor>);
+static_assert(std::is_base_of_v<Socket, TcpListener>);
 static_assert(std::is_base_of_v<Socket, TcpConnector>);
-static_assert(!CanConnect<TcpAcceptor>);
+static_assert(!CanConnect<TcpListener>);
 static_assert(CanConnect<TcpConnector>);
-static_assert(CanListen<TcpAcceptor>);
+static_assert(CanListen<TcpListener>);
 static_assert(!CanListen<TcpConnector>);
 
 using Toggle = nbio::utility::expected<void, std::error_code> (Socket::*)(bool) noexcept;
@@ -140,14 +140,14 @@ TEST(SocketTesting, InvalidSocketOptionsReportErrors) {
 }
 
 TEST(SocketTesting, DerivedSocketsPreserveConnectionAndOwnership) {
-    TcpAcceptor original;
+    TcpListener original;
     ASSERT_TRUE(original.ToggleReuseAddress(true));
     ASSERT_TRUE(original.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
     const auto handle = original.native_handle();
-    TcpAcceptor acceptor{std::move(original)};
+    TcpListener listener{std::move(original)};
     EXPECT_FALSE(original.is_valid());
-    EXPECT_EQ(acceptor.native_handle(), handle);
-    const auto address = acceptor.GetLocalAddress();
+    EXPECT_EQ(listener.native_handle(), handle);
+    const auto address = listener.GetLocalAddress();
     ASSERT_TRUE(address);
 
     TcpConnector client;
@@ -156,7 +156,7 @@ TEST(SocketTesting, DerivedSocketsPreserveConnectionAndOwnership) {
     const auto repeated = client.Connect(*address);
     ASSERT_FALSE(repeated);
     EXPECT_EQ(repeated.error(), std::errc::already_connected);
-    auto accepted = acceptor.Accept();
+    auto accepted = listener.Accept();
     ASSERT_TRUE(accepted);
     EXPECT_TRUE(accepted->is_valid());
     const auto peer = accepted->GetRemoteAddress();
@@ -191,9 +191,9 @@ TEST(SocketTesting, DerivedSocketsPreserveConnectionAndOwnership) {
 
 #if defined(__linux__)
 TEST(SocketTesting, NonBlockingConnectReturnsNativeInProgress) {
-    TcpAcceptor acceptor;
-    ASSERT_TRUE(acceptor.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
-    const auto address = acceptor.GetLocalAddress();
+    TcpListener listener;
+    ASSERT_TRUE(listener.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
+    const auto address = listener.GetLocalAddress();
     ASSERT_TRUE(address);
     TcpConnector client;
     ASSERT_TRUE(client.ToggleNonBlocking(true));
@@ -223,9 +223,9 @@ nbio::async::Task<void> CheckAsyncConnect(const Address& target, bool succeeds) 
 }
 
 void CheckAsyncConnections() {
-    TcpAcceptor acceptor;
-    ASSERT_TRUE(acceptor.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
-    const auto address = acceptor.GetLocalAddress();
+    TcpListener listener;
+    ASSERT_TRUE(listener.Bind(Address::FromIPv4("127.0.0.1", 0).value()));
+    const auto address = listener.GetLocalAddress();
     ASSERT_TRUE(address);
     nbio::async::Run(CheckAsyncConnect(*address, true));
 

@@ -2,9 +2,11 @@
 
 #include <rdma/rdma_cma.h>
 
+#include <cerrno>
 #include <format>
 #include <nbio/net/rdma_resource_manager.hpp>
 #include <nbio/utility/defer.hpp>
+#include <system_error>
 #include <utility>
 
 namespace nbio::net {
@@ -50,7 +52,9 @@ RdmaResourceManager::RdmaResourceManager(std::string_view device_name) {
                                        IBV_ACCESS_LOCAL_WRITE));
 
     if (!receive_region_) [[unlikely]] {
-        throw std::runtime_error(std::format("failed to register receive memory region for {}", device_name));
+        const int error = errno;
+        throw std::runtime_error(std::format("failed to register receive memory region for {}: {} (errno {})",
+                                             device_name, std::generic_category().message(error), error));
     }
 
     // Two-sided SEND/RECV only, so the peer has no business reaching either region
@@ -59,7 +63,9 @@ RdmaResourceManager::RdmaResourceManager(std::string_view device_name) {
                                     send_memory_.chunk_size() * send_memory_.capacity(), IBV_ACCESS_LOCAL_WRITE));
 
     if (!send_region_) [[unlikely]] {
-        throw std::runtime_error(std::format("failed to register send memory region for {}", device_name));
+        const int error = errno;
+        throw std::runtime_error(std::format("failed to register send memory region for {}: {} (errno {})",
+                                             device_name, std::generic_category().message(error), error));
     }
 }
 

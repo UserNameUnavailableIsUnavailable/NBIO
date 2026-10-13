@@ -113,9 +113,9 @@ nbio::async::Task<nbio::utility::expected<std::span<char>, std::string>> Receive
     co_return incoming->payload;
 }
 
-nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaAcceptService& acceptor,
+nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
                                         nbio::net::RdmaDeliverService::Layout layout, Outcome& outcome) {
-    auto admitted = co_await acceptor.Accept();
+    auto admitted = co_await listener.Accept();
     if (!admitted) [[unlikely]] {
         outcome.failure = "accept failed: " + admitted.error().message();
         co_return;
@@ -350,8 +350,8 @@ int main(int argc, char* argv[]) {
     if (mode == "server") {
         RunEngine(
             [&] {
-                nbio::net::RdmaAcceptService acceptor(resources, *peer);
-                nbio::async::Run(ServerBenchmark(acceptor, layout, outcome));
+                nbio::net::RdmaListenService listener(resources, *peer);
+                nbio::async::Run(ServerBenchmark(listener, layout, outcome));
             },
             multiplexer, outcome);
     } else {

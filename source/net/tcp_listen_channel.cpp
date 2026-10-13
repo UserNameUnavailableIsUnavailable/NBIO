@@ -3,35 +3,35 @@
 #include <nbio/async/scheduler.hpp>
 #include <nbio/core/types.hpp>
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_accept_channel.hpp>
+#include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/socket.hpp>
 #include <optional>
 #include <stdexcept>
 #include <utility>
 
 namespace nbio::net {
-TcpAcceptChannel::TcpAcceptChannel(nbio::net::TcpAcceptor& acceptor, nbio::core::Multiplexer& multiplexer,
+TcpListenChannel::TcpListenChannel(nbio::net::TcpListener& listener, nbio::core::Multiplexer& multiplexer,
                                    nbio::async::Scheduler& scheduler)
-    : nbio::core::Channel<TcpAcceptChannel>(nbio::core::ChannelType::kAccept,
-                                            static_cast<std::uintptr_t>(acceptor.native_handle()), multiplexer,
+    : nbio::core::Channel<TcpListenChannel>(nbio::core::ChannelType::kAccept,
+                                            static_cast<std::uintptr_t>(listener.native_handle()), multiplexer,
                                             scheduler),
-      acceptor_(acceptor) {
-    if (!acceptor_.is_valid()) {
-        throw std::logic_error("invalid acceptor");
+      listener_(listener) {
+    if (!listener_.is_valid()) {
+        throw std::logic_error("invalid listener");
     }
     // The listener has to be polled rather than waited on: an accept that blocks in
     // the call would hold the whole engine.
-    if (auto result = acceptor_.ToggleNonBlocking(true); !result) {
+    if (auto result = listener_.ToggleNonBlocking(true); !result) {
         throw std::system_error(result.error(), "NonBlocking failed");
     }
     // Registered on the first arm(): there is nothing to watch until a wait queues.
 }
 
-TcpAcceptChannel::~TcpAcceptChannel() noexcept { multiplexer_.DeleteChannel(this); }
+TcpListenChannel::~TcpListenChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
 class AcceptAwaiter {
    public:
-    AcceptAwaiter(TcpAcceptChannel& channel) : channel_(channel) {}
+    AcceptAwaiter(TcpListenChannel& channel) : channel_(channel) {}
     AcceptAwaiter(const AcceptAwaiter&) = delete;
     AcceptAwaiter& operator=(const AcceptAwaiter&) = delete;
 
@@ -48,14 +48,14 @@ class AcceptAwaiter {
     net::Communication await_resume() noexcept { return std::move(communication_); }
 
    private:
-    TcpAcceptChannel& channel_;
+    TcpListenChannel& channel_;
     net::Communication communication_{};
 };
 
 // The accept body, as a plain coroutine whose channel is an ordinary parameter
-// (see the note on TcpAcceptChannel::accept).
+// (see the note on TcpListenChannel::accept).
 static nbio::async::Task<utility::expected<std::pair<net::TcpConnector, net::Address>, std::error_code>> AcceptOn(
-    TcpAcceptChannel& channel) {
+    TcpListenChannel& channel) {
     auto result = co_await AcceptAwaiter(channel);
     if (result.status == OperationStatus::kError) {
         co_return utility::unexpected<std::error_code>(std::move(result.error_code));
@@ -63,10 +63,10 @@ static nbio::async::Task<utility::expected<std::pair<net::TcpConnector, net::Add
     // The socket the kernel accepted is connected to a peer, so the listener is what
     // turns it into the connection this end now has; the address is the one thing
     // about it that the accepted side did not already know.
-    co_return std::make_pair(channel.acceptor().Adopt(std::move(result.socket)), std::move(result.address));
+    co_return std::make_pair(channel.listener().Adopt(std::move(result.socket)), std::move(result.address));
 }
 
-void TcpAcceptChannel::Prepare(async::Coroutine waiter, net::Communication* communication) {
+void TcpListenChannel::Prepare(async::Coroutine waiter, net::Communication* communication) {
     communication->status = OperationStatus::kPending;
     communication->socket = {};
     communication->address = {};
@@ -77,9 +77,9 @@ void TcpAcceptChannel::Prepare(async::Coroutine waiter, net::Communication* comm
     payload.submit(communication);
 }
 
-TcpAcceptChannel::Payload& TcpAcceptChannel::Submit() { return payload_; }
+TcpListenChannel::Payload& TcpListenChannel::Submit() { return payload_; }
 
-void TcpAcceptChannel::Complete() {
+void TcpListenChannel::Complete() {
     auto& payload = payload_;
     while (auto next = payload.next_completion()) {
         auto waiter = std::move(waiters_.front());
@@ -95,7 +95,7 @@ void TcpAcceptChannel::Complete() {
 }
 
 nbio::async::Task<utility::expected<std::pair<net::TcpConnector, net::Address>, std::error_code>>
-TcpAcceptChannel::Accept() {
+TcpListenChannel::Accept() {
     // Deliberately not a member coroutine: the implicit object parameter of a
     // member coroutine is laid out by the compiler in the same frame slot the
     // promise uses, so `*this` inside the body came back as the inherited

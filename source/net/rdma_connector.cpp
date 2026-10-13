@@ -162,7 +162,7 @@ void RdmaConnector::BuildQueuePair() {
         // Post all receive chunks, otherwise incoming sends will fail.
         PostAllReceives();
     } catch (...) {
-        // The id and the channel stay: the acceptor rejects the connection with the
+        // The id and the channel stay: the listener rejects the connection with the
         // one and this object's destructor gives back the other.
         ReleaseDeviceObjects();
         throw;

@@ -70,3 +70,8 @@ enabled. io_uring's `Condition` example is added only when io_uring is enabled.
 
 Both options can be enabled together. Building the RDMA examples does not
 require an RDMA device, but running them does.
+
+## FAQ
+
+- Building `liburing` fails in Ubuntu 26.04.
+- Ubuntu 26.04 replaces system GNU coreutils with uutils, and it has been reported that uutils has compatibility issues with `liburing`'s build scripts. Try `sudo apt remove coreutils-from-uutils --allow-remove-essential` to restore the original GNU coreutils.

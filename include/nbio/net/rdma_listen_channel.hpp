@@ -8,7 +8,7 @@
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
 #include <nbio/net/payload.hpp>
-#include <nbio/net/rdma_acceptor.hpp>
+#include <nbio/net/rdma_listener.hpp>
 #include <nbio/net/rdma_result.hpp>
 #include <optional>
 #include <system_error>
@@ -17,19 +17,19 @@
 #include "rdma_session_service.hpp"
 
 namespace nbio::net {
-class RdmaAcceptChannel final : public nbio::core::Channel<RdmaAcceptChannel> {
+class RdmaListenChannel final : public nbio::core::Channel<RdmaListenChannel> {
    public:
     using Handle = int;
-    using Payload = detail::PollPayload<RdmaAcceptChannel>;
+    using Payload = detail::PollPayload<RdmaListenChannel>;
 
     struct PendingAccept {
         std::optional<RdmaConnector> connection{};
         std::error_code error{};
     };
 
-    RdmaAcceptChannel(nbio::net::RdmaAcceptor& acceptor, nbio::core::Multiplexer& multiplexer,
+    RdmaListenChannel(nbio::net::RdmaListener& listener, nbio::core::Multiplexer& multiplexer,
                       nbio::async::Scheduler& scheduler);
-    ~RdmaAcceptChannel() noexcept;
+    ~RdmaListenChannel() noexcept;
 
     nbio::async::Task<RdmaResult<RdmaConnector>> accept();
 
@@ -44,10 +44,10 @@ class RdmaAcceptChannel final : public nbio::core::Channel<RdmaAcceptChannel> {
 
     const PendingAccept& job() const noexcept { return job_; }
 
-    nbio::net::RdmaAcceptor& acceptor() noexcept { return acceptor_; }
+    nbio::net::RdmaListener& listener() noexcept { return listener_; }
 
    private:
-    nbio::net::RdmaAcceptor& acceptor_;
+    nbio::net::RdmaListener& listener_;
     PendingAccept job_{};
     nbio::async::Coroutine waiter_{};
     Payload payload_{};

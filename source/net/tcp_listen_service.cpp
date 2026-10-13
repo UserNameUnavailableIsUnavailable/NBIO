@@ -1,32 +1,32 @@
 #include <memory>
 #include <nbio/runtime/daemon.hpp>
-#include <nbio/net/tcp_accept_service.hpp>
+#include <nbio/net/tcp_listen_service.hpp>
 #include <nbio/net/tcp_session_service.hpp>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
 
 namespace nbio::net {
-TcpAcceptService::TcpAcceptService(const nbio::net::Address& address, int backlog)
-    : acceptor_(address.family()),
-      channel_(acceptor_, nbio::runtime::Daemon::multiplexer(), nbio::runtime::Daemon::scheduler()) {
+TcpListenService::TcpListenService(const nbio::net::Address& address, int backlog)
+    : listener_(address.family()),
+      channel_(listener_, nbio::runtime::Daemon::multiplexer(), nbio::runtime::Daemon::scheduler()) {
     // A listener that cannot be restarted while the socket it replaced is still in
     // TIME_WAIT is not much of a listener, and nothing else can set this: the socket
-    // belongs to the acceptor.
-    if (auto reuse = acceptor_.ToggleReuseAddress(true); !reuse) [[unlikely]]
+    // belongs to the listener.
+    if (auto reuse = listener_.ToggleReuseAddress(true); !reuse) [[unlikely]]
     {
         throw std::system_error(reuse.error(), "setsockopt(SO_REUSEADDR) failed");
     }
-    if (auto bound = acceptor_.Bind(address, static_cast<std::size_t>(backlog)); !bound) [[unlikely]]
+    if (auto bound = listener_.Bind(address, static_cast<std::size_t>(backlog)); !bound) [[unlikely]]
     {
         throw std::system_error(bound.error(), "bind failed");
     }
 }
 
-TcpAcceptService::~TcpAcceptService() noexcept = default;
+TcpListenService::~TcpListenService() noexcept = default;
 
 nbio::async::Task<utility::expected<std::pair<std::shared_ptr<TcpSessionService>, nbio::net::Address>, std::error_code>>
-TcpAcceptService::Accept() {
+TcpListenService::Accept() {
     auto accepted = co_await channel_.Accept();
     if (!accepted) [[unlikely]] {
         co_return utility::unexpected<std::error_code>(accepted.error());

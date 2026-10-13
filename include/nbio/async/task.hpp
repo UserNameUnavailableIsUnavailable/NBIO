@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cassert>
-#include <concepts>
 #include <coroutine>
 #include <exception>
 #include <nbio/async/coroutine.hpp>
@@ -10,6 +9,7 @@
 #include <variant>
 
 namespace nbio::async {
+class Scheduler;
 class Scheduler;
 
 // IMPORTANT: this must only queue the frame for reclamation. It must NEVER
@@ -76,6 +76,8 @@ struct Promise {
         void await_resume() noexcept {}
     };
 };
+
+
 
 template <typename T>
 class Task {

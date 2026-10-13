@@ -5,10 +5,10 @@ target_sources(
     PRIVATE
     address.cpp
     socket.cpp
-    tcp_acceptor.cpp
+    tcp_listener.cpp
     tcp_connector.cpp
-    tcp_accept_channel.cpp
-    tcp_accept_service.cpp
+    tcp_listen_channel.cpp
+    tcp_listen_service.cpp
     tcp_connect_channel.cpp
     tcp_connect_service.cpp
     tcp_receive_channel.cpp
@@ -25,9 +25,9 @@ if(NBIO_ENABLE_RDMA)
         PRIVATE
         rdma_resource_manager.cpp
         rdma_connector.cpp
-        rdma_acceptor.cpp
-        rdma_accept_channel.cpp
-        rdma_accept_service.cpp
+        rdma_listener.cpp
+        rdma_listen_channel.cpp
+        rdma_listen_service.cpp
         rdma_connect_channel.cpp
         rdma_connect_service.cpp
         rdma_deliver_service.cpp

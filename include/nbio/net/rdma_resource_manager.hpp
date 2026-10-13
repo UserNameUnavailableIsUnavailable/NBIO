@@ -59,8 +59,8 @@ class RdmaResourceManager {
     // built on, and the manager that owns it outlives every connection.
     ::ibv_context* device_context_{nullptr};
     std::unique_ptr<::ibv_pd, PdDel> protection_domain_;
-    utility::BitmapMemory receive_memory_{4096, 4096};
-    utility::BitmapMemory send_memory_{4096, 4096};
+    utility::BitmapMemory receive_memory_{4096, 512};
+    utility::BitmapMemory send_memory_{4096, 512};
     std::unique_ptr<::ibv_mr, MrDel> receive_region_;
     std::unique_ptr<::ibv_mr, MrDel> send_region_;
 };

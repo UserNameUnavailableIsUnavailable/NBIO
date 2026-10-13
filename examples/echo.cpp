@@ -4,7 +4,7 @@
 #include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_accept_service.hpp>
+#include <nbio/net/tcp_listen_service.hpp>
 #include <nbio/net/socket.hpp>
 #include <nbio/utility/buffer.hpp>
 
@@ -16,9 +16,9 @@ nbio::async::Task<void> Service() {
         std::cerr << "Invalid listen address: " << address.error().message() << '\n';
         co_return;
     }
-    nbio::net::TcpAcceptService acceptor{*address};
+    nbio::net::TcpListenService listener{*address};
     while (true) {
-        auto accepted = co_await acceptor.Accept();
+        auto accepted = co_await listener.Accept();
         if (!accepted) {
             std::cout << "[conn] failed\n";
             co_return;

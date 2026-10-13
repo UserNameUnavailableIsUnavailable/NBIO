@@ -5,8 +5,8 @@
 #include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_accept_channel.hpp>
-#include <nbio/net/tcp_acceptor.hpp>
+#include <nbio/net/tcp_listen_channel.hpp>
+#include <nbio/net/tcp_listener.hpp>
 #include <nbio/net/tcp_session_service.hpp>
 #include <nbio/utility/expected.hpp>
 #include <system_error>
@@ -23,30 +23,30 @@ namespace nbio::net {
 //
 // The channel is built on the listener and keeps a reference to it, which is why the
 // listener is declared first here and why both outlive whatever is served.
-class TcpAcceptService final {
+class TcpListenService final {
    public:
     // Listens on `address`. The listener is bound here, before anything can wait on
     // it, so a service that exists is a service that can accept -- and a bind the
     // kernel refuses is a failure to start rather than one to discover later.
-    TcpAcceptService(const nbio::net::Address& address, int backlog = 4096);
+    TcpListenService(const nbio::net::Address& address, int backlog = 4096);
 
-    TcpAcceptService(const TcpAcceptService&) = delete;
-    TcpAcceptService& operator=(const TcpAcceptService&) = delete;
-    TcpAcceptService(TcpAcceptService&&) = delete;
-    TcpAcceptService& operator=(TcpAcceptService&&) = delete;
+    TcpListenService(const TcpListenService&) = delete;
+    TcpListenService& operator=(const TcpListenService&) = delete;
+    TcpListenService(TcpListenService&&) = delete;
+    TcpListenService& operator=(TcpListenService&&) = delete;
 
-    ~TcpAcceptService() noexcept;
+    ~TcpListenService() noexcept;
 
     nbio::async::Task<
         utility::expected<std::pair<std::shared_ptr<TcpSessionService>, nbio::net::Address>, std::error_code>>
     Accept();
 
-    nbio::net::TcpAcceptor& acceptor() noexcept { return acceptor_; }
+    nbio::net::TcpListener& listener() noexcept { return listener_; }
 
-    const nbio::net::TcpAcceptor& acceptor() const noexcept { return acceptor_; }
+    const nbio::net::TcpListener& listener() const noexcept { return listener_; }
 
    private:
-    nbio::net::TcpAcceptor acceptor_;
-    TcpAcceptChannel channel_;
+    nbio::net::TcpListener listener_;
+    TcpListenChannel channel_;
 };
 }  // namespace nbio::net

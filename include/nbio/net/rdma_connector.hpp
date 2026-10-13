@@ -16,7 +16,7 @@
 #include <system_error>
 
 namespace nbio::net {
-class RdmaAcceptor;
+class RdmaListener;
 
 enum class RdmaSendStatus {
     kDone,
@@ -26,12 +26,12 @@ enum class RdmaSendStatus {
 };
 
 // One end of a reliable connection: what a client makes with connect(), and what an
-// acceptor hands out once it has admitted a client. It owns the id, the channel that
+// listener hands out once it has admitted a client. It owns the id, the channel that
 // id reports its connection-management events on, and the queue pair; the device,
 // the protection domain, the memory regions and the chunk pools come from the
 // manager it borrows, which must outlive it.
 class RdmaConnector {
-    friend class RdmaAcceptor;
+    friend class RdmaListener;
 
    public:
     using Handle = int;
@@ -118,7 +118,7 @@ class RdmaConnector {
     std::error_code error() const noexcept { return error_; }
 
    private:
-    // The acceptor's end: an id the kernel created for a connection that asked to be
+    // The listener's end: an id the kernel created for a connection that asked to be
     // admitted, and a channel that id has been migrated onto, so that this
     // connection's events arrive here rather than at the listener.
     RdmaConnector(::rdma_cm_id* communication_id, ::rdma_event_channel* event_channel, RdmaResourceManager& resources);
@@ -131,7 +131,7 @@ class RdmaConnector {
 
     // Creates the completion channel, the two completion queues and the queue pair,
     // takes this connection's chunks from the pools and posts its receives. Throws:
-    // the callers are the acceptor's constructor path, where a failure is a
+    // the callers are the listener's constructor path, where a failure is a
     // rejected connection, and connect(), where it is a failed one.
     void BuildQueuePair();
 
