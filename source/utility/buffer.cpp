@@ -16,22 +16,27 @@ bool Buffer::reserve(std::size_t size) {
     if (writable_size() >= size) {
         return true;
     }
-    const std::size_t minimal = capacity_ + size;
-    if (minimal > max_capacity_) {
+    const std::size_t held = readable_size();
+    if (size > max_capacity_ - held) {
         return false;
     }
-    // bargaining if the minimal requirement satisfied
-    std::size_t capacity = minimal;
-    if (capacity + capacity / 2 < max_capacity_) {
-        capacity = capacity + capacity / 2;
+    if (size <= capacity_ - held) {
+        if (held != 0) {
+            std::memmove(storage_.get(), storage_.get() + begin_, held);
+        }
+        begin_ = 0;
+        end_ = held;
+        return true;
     }
+    const std::size_t minimal = held + size;
+    const std::size_t capacity =
+        std::max(minimal, capacity_ + std::min(capacity_ / 2, max_capacity_ - capacity_));
     // move the existing data to the beginning of the new storage, leaving no space for prepending
     // since appending is more frequent. The region the buffer describes moves
     // with it: bytes that are read but not yet consumed sit at the front of the
     // new storage now, so begin_ and end_ follow them there. Leaving them where
     // they were would have the buffer read a part of the new storage its bytes
     // were never copied to.
-    const std::size_t held = readable_size();
     auto storage = std::make_unique<char[]>(capacity);
     if (held != 0) {
         std::memcpy(storage.get(), storage_.get() + begin_, held);
@@ -60,6 +65,9 @@ bool Buffer::write(const char* data) { return Buffer::write(data, std::strlen(da
 void Buffer::consume(std::size_t size) noexcept {
     assert(size <= readable_size());
     begin_ += std::min(size, readable_size());
+    if (is_empty()) {
+        clear();
+    }
 }
 
 void Buffer::shrink() {

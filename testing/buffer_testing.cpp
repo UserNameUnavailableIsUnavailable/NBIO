@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <limits>
 #include <nbio/utility/buffer.hpp>
 #include <string>
 
@@ -76,4 +77,47 @@ TEST(Buffer, ABufferAtItsCeilingKeepsWhatItHolds) {
     EXPECT_EQ(buffer.string_view(), Fill(12, 'a'));
     Append(buffer, "12345678");
     EXPECT_EQ(buffer.string_view(), Fill(12, 'a') + "12345678");
+}
+
+TEST(Buffer, FullyConsumedStorageIsReusedWithoutGrowing) {
+    nbio::utility::Buffer buffer(16, 16);
+    for (std::size_t iteration = 0; iteration < 10000; ++iteration) {
+        ASSERT_TRUE(buffer.write("0123456789abcdef", 16));
+        buffer.consume(16);
+        ASSERT_TRUE(buffer.is_empty());
+        ASSERT_EQ(buffer.writable_size(), 16U);
+        ASSERT_EQ(buffer.capacity(), 16U);
+    }
+}
+
+TEST(Buffer, ConsumedPrefixIsCompactedBeforeGrowing) {
+    nbio::utility::Buffer buffer(16, 16);
+    Append(buffer, "0123456789abcdef");
+    buffer.consume(10);
+    ASSERT_TRUE(buffer.reserve(10));
+    EXPECT_EQ(buffer.capacity(), 16U);
+    EXPECT_EQ(buffer.string_view(), "abcdef");
+    Append(buffer, "0123456789");
+    EXPECT_EQ(buffer.string_view(), "abcdef0123456789");
+}
+
+TEST(Buffer, GrowthNeedsOnlyUnreadBytesAndRequestedSpace) {
+    nbio::utility::Buffer buffer(16, 24);
+    Append(buffer, "0123456789abcdef");
+    buffer.consume(10);
+    ASSERT_TRUE(buffer.reserve(18));
+    EXPECT_EQ(buffer.capacity(), 24U);
+    EXPECT_EQ(buffer.string_view(), "abcdef");
+    EXPECT_EQ(buffer.writable_size(), 18U);
+}
+
+TEST(Buffer, OversizedReservationLeavesDataIntact) {
+    nbio::utility::Buffer buffer(16, 24);
+    Append(buffer, "0123456789abcdef");
+    buffer.consume(10);
+    const char* original = buffer.string_view().data();
+    EXPECT_FALSE(buffer.reserve(std::numeric_limits<std::size_t>::max()));
+    EXPECT_EQ(buffer.string_view(), "abcdef");
+    EXPECT_EQ(buffer.string_view().data(), original);
+    EXPECT_EQ(buffer.capacity(), 16U);
 }
