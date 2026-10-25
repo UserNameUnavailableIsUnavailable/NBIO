@@ -2,10 +2,10 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
+#include <nbio/core/multiplexer.hpp>
 #include <nbio/net/payload.hpp>
 #include <nbio/net/rdma_connector.hpp>
 #include <nbio/net/rdma_result.hpp>
@@ -14,66 +14,90 @@
 #include <utility>
 
 namespace nbio::net {
+/**
+ * @brief The sending half of a connection, as a coroutine-facing channel.
+ *
+ * @details This adds nothing to the connector except a way to suspend on it: a
+ * post is a work request, and a wait is one sequence number followed by taking
+ * and releasing its result. The channel owns no memory and keeps no buffer: the
+ * spans it is given are the caller's regions, and the span a wait answers is the
+ * one that was posted.
+ *
+ * @note One waiter at a time. The channel parks a single coroutine, so two
+ *       coroutines awaiting @ref Wait on the same channel would overwrite each
+ *       other's job. A single producer coroutine per direction is the intended
+ *       shape.
+ *
+ * This class is designed to be used in a single thread.
+ */
 class RdmaSendChannel final : public nbio::core::Channel<RdmaSendChannel> {
    public:
     using Handle = int;
     using Payload = detail::PollPayload<RdmaSendChannel>;
 
-    struct PendingSend {
-        // How many sends may still be in flight for the Parked poll to be met.
-        std::size_t target{0};
-        // Completions reaped since the poll began.
-        std::size_t completions{0};
-        // Why the stream stopped completing anything, empty while it has not.
-        std::error_code error{};
+    /**
+     * @brief What one parked wait is waiting for, and what it found.
+     */
+    struct Pending {
+        RdmaSeq seq{0};             ///< The sequence number being waited for.
+        RdmaSendResult result{};    ///< The result, once it is ready.
+        std::error_code error{};    ///< Why it will not become ready, if it will not.
     };
 
+    /**
+     * @brief Registers this channel on the connection's send completion fd.
+     *
+     * @param connection The connection whose send queue this channel drives.
+     * @param multiplexer The backend that watches the fd.
+     * @param scheduler The scheduler that resumes a parked waiter.
+     */
     RdmaSendChannel(nbio::net::RdmaConnector& connection, nbio::core::Multiplexer& multiplexer,
                     nbio::async::Scheduler& scheduler);
+
     ~RdmaSendChannel() noexcept;
 
-    // A chunk to fill. Several can be held at once, so the way to use this is to
-    // take as many as the stream will give, fill them, and send them -- the
-    // device carries them in parallel instead of one per round trip. An empty
-    // answer means every chunk is already in flight.
-    RdmaResult<RdmaBufferResult> Acquire() noexcept { return connection_.Acquire(); }
+    /**
+     * @brief Posts one SEND, exactly as @ref RdmaConnector::PostSend does.
+     *
+     * @param buffer A subspan of the connection's send region.
+     * @return The sequence number assigned to the request, or why it was not
+     *         posted.
+     */
+    RdmaResult<RdmaSeq> Post(std::span<const char> buffer) noexcept;
 
-    // Hands one acquired chunk to the device. Returns immediately: the chunk
-    // belongs to the device until a completion retires it, which poll() reports.
-    RdmaResult<void> Send(std::span<char> chunk, std::size_t length) noexcept {
-        return connection_.Send(chunk, length);
-    }
+    /**
+     * @brief Waits for one sequence number's result, then consumes it.
+     *
+     * @details Waits, fetches and drops: the result is handed out exactly once, and
+     * the slot is released so the ring can advance. A second wait for the same
+     * sequence number fails with @ref RdmaErrc::kInvalidSequence.
+     *
+     * @param seq The sequence number returned by @ref Post.
+     * @return The retired buffer and its sequence number, or why it never retired.
+     */
+    nbio::async::Task<RdmaResult<RdmaSendResult>> Wait(RdmaSeq seq);
 
-    // Waits until at least `count` of the sends in flight when it was called have
-    // completed, or -- for the default -- until all of them have, after which
-    // every chunk has been handed back. Answers how many completed while it
-    // waited, which is also how many chunks became available, or why the stream
-    // gave up completing them.
-    nbio::async::Task<RdmaResult<std::size_t>> Poll(std::size_t count = 0);
-
-    // Sends posted and not yet reaped.
-    std::size_t outstanding() const noexcept { return connection_.outstanding_sends(); }
-
-    // The operation this channel wants from the backend is a one-shot poll; the
-    // payload carries only whether one is already out there.
+    /** @brief The backend's one-shot poll payload. */
     Payload& Submit();
+
+    /** @brief Reaps the completion queue and resumes the parked waiter, if any. */
     void Complete();
 
+    /** @brief Remembers the coroutine a completed wait should resume. */
     void Park(nbio::async::Coroutine waiter) noexcept { waiter_ = std::move(waiter); }
 
+    /** @brief The connection this channel drives. */
     nbio::net::RdmaConnector& connection() noexcept { return connection_; }
 
-    PendingSend& job() noexcept { return job_; }
+    /** @brief The job a parked pull is working on. */
+    Pending& job() noexcept { return job_; }
 
-    const PendingSend& job() const noexcept { return job_; }
-
-    // Completions reaped so far, which a poll reads to answer with a difference.
-    std::size_t& completed() noexcept { return completed_; }
+    /** @brief The job a parked pull is working on. */
+    const Pending& job() const noexcept { return job_; }
 
    private:
     nbio::net::RdmaConnector& connection_;
-    PendingSend job_{};
-    std::size_t completed_{0};
+    Pending job_{};
     nbio::async::Coroutine waiter_{};
     Payload payload_{};
 };

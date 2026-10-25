@@ -71,6 +71,12 @@ enabled. io_uring's `Condition` example is added only when io_uring is enabled.
 Both options can be enabled together. Building the RDMA examples does not
 require an RDMA device, but running them does.
 
+RDMA is built in two layers: coroutine services, which are the interface to
+program against, and the primitives underneath them, which are infrastructure
+exposed for callers that want direct control over a queue pair. See
+[docs/rdma.md](docs/rdma.md) for the layering, the memory contract and the
+completion model.
+
 ## FAQ
 
 - Building `liburing` fails in Ubuntu 26.04.

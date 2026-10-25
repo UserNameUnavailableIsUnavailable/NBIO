@@ -31,7 +31,7 @@ class RdmaListenChannel final : public nbio::core::Channel<RdmaListenChannel> {
                       nbio::async::Scheduler& scheduler);
     ~RdmaListenChannel() noexcept;
 
-    nbio::async::Task<RdmaResult<RdmaConnector>> accept();
+    nbio::async::Task<RdmaResult<RdmaConnector>> Accept();
 
     // The operation this channel wants from the backend is a one-shot poll; the
     // payload carries only whether one is already out there.

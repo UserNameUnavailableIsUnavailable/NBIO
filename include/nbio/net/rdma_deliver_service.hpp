@@ -13,23 +13,50 @@
 #include <nbio/utility/expected.hpp>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace nbio::net {
+/**
+ * @brief A stream over a connection, with a window and acknowledgements.
+ *
+ * @details This is the one place a buffer policy survives, and it is deliberately
+ * above the transport: the service carves the session's regions into packetsized
+ * slots itself, and the connector and the channels know nothing about it.
+ *
+ * - Every packet carries the highest sequence number this end has finished with,
+ *   which is what lets the peer send again.
+ * - A payload's slot is not reposted until the caller releases the payload, so an
+ *   acknowledgement means "the buffer is back", not "the bytes went past".
+ * - The window is the number of receives this end has posted, announced in the
+ *   handshake, so neither end has to guess what the other can take.
+ */
 class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliverService> {
    public:
+    /**
+     * @brief What one end can take: the bytes in one packet, and how many packets
+     *        it has posted.
+     */
     struct Layout {
-        std::uint64_t chunk_size{0};
-        std::uint64_t chunk_count{0};
+        std::uint64_t chunk_size{0};   ///< Bytes in one posted receive.
+        std::uint64_t chunk_count{0};  ///< Receives posted, which is the window.
 
-        // What one packet's payload can be, which is what a caller's payload is cut
-        // at on the way out.
+        /** @brief What one packet's payload can be. */
         std::uint64_t payload_size() const noexcept {
             return chunk_size > sizeof(nbio::net::RdmaHeader) ? chunk_size - sizeof(nbio::net::RdmaHeader) : 0;
         }
     };
 
-    // The session has to be established already: the handshake is a packet, and a
-    // packet needs a connection.
+    /**
+     * @brief Carves the session's regions into slots and posts every receive.
+     *
+     * @param session The established connection to carry the stream.
+     * @param layout What this end can take. Must fit the session's receive region,
+     *        fit within its receive queue, and leave room for one packet in its
+     *        send region.
+     *
+     * @throws std::invalid_argument when the layout cannot be honoured, which is a
+     *         programming error rather than a link failure.
+     */
     RdmaDeliverService(std::shared_ptr<RdmaSessionService> session, Layout layout);
     ~RdmaDeliverService() noexcept;
 
@@ -38,71 +65,86 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     RdmaDeliverService(RdmaDeliverService&&) = delete;
     RdmaDeliverService& operator=(RdmaDeliverService&&) = delete;
 
-    // Says what this end can take and waits to hear the same from the peer. Both sides
-    // do this as soon as they are connected, so neither has to know who speaks first,
-    // and nothing else is sent or received until it has happened.
+    /**
+     * @brief Says what this end can take and waits to hear the same from the peer.
+     *
+     * @return Nothing once both ends agree, or why the link could not be opened.
+     */
     nbio::async::Task<nbio::utility::expected<void, std::string>> handshake();
 
-    // Starts the reader. Until this is called nothing takes packets off the session,
-    // so nothing is acknowledged and nothing arrives. Called once.
+    /** @brief Starts the reader. Until this is called nothing is acknowledged. */
     void Start();
 
-    // Ends the link from this side: the reader is cancelled and whatever is waiting for
-    // a packet is told that none is coming. The reader is a root coroutine, and a live
-    // root keeps a thread's Run() from returning -- so this is also what lets a stopped
-    // service be destroyed, since the reader's own frame holds a reference to it.
+    /** @brief Ends the link from this side and cancels the reader. */
     void Stop() noexcept;
 
-    // One payload, cut into as many packets as it needs. Waits for the peer to
-    // acknowledge enough that the packets this adds stay inside the window, which is
-    // the backpressure: a consumer that is slow simply does not get more.
+    /**
+     * @brief Sends one payload, cut into as many packets as it needs.
+     *
+     * @param payload The bytes to send.
+     * @return Nothing once every packet has been handed to the device, or why not.
+     */
     nbio::async::Task<nbio::utility::expected<void, std::string>> Send(std::span<const char> payload);
 
-    // The next payload the peer sent, empty once the link is over.
+    /** @brief The next payload the peer sent, or that the link is over. */
     nbio::async::Task<nbio::utility::expected<RdmaPayloadResult, std::string>> Receive();
 
-    // Gives a payload back, which puts its chunk back in the pool -- and that is what
-    // lets the peer send more, so the acknowledgement goes out here rather than when
-    // the bytes arrived.
+    /**
+     * @brief Gives a payload back, which reposts its slot and is what the peer waits
+     *        for.
+     *
+     * @param payload The payload previously answered by @ref Receive, in arrival
+     *        order.
+     * @return Nothing once the slot is posted again, or why it is not.
+     */
     nbio::async::Task<nbio::utility::expected<void, std::string>> release(std::span<char> payload);
 
-    // What the peer has acknowledged, and what this end has sent: the distance between
-    // them is what has to stay inside the peer's chunk count.
+    /** @brief What the peer has acknowledged. */
     std::uint64_t acknowledged() const noexcept { return acknowledged_; }
 
+    /** @brief What this end has sent. */
     std::uint64_t sent() const noexcept { return sent_; }
 
+    /** @brief What this end has taken. */
     std::uint64_t taken() const noexcept { return taken_; }
 
+    /** @brief The layout this end announced. */
+    const Layout& layout() const noexcept { return mine_; }
+
    private:
-    // Everything one packet's worth: the header it arrived with, and the payload
-    // inside it.
+    /**
+     * @brief One packet, as it arrived: the filled part, and the slot it came in.
+     */
     struct Incoming {
-        std::span<char> packet{};
+        std::span<char> packet{};  ///< Header and payload, as many bytes as arrived.
+        std::span<char> chunk{};   ///< The whole posted slot, for reposting.
         std::uint64_t sequence{0};
         nbio::net::RdmaPacketType type{};
         std::uint64_t acknowledge{0};
     };
 
-    // A payload off the session and not yet asked for, with the number of the packet
-    // it came in: the number is what an acknowledgement ends up naming, and it can only
-    // be known when the chunk it arrived in goes back.
+    /**
+     * @brief A payload off the session and not yet asked for.
+     */
     struct Held {
         std::span<char> payload{};
+        std::span<char> chunk{};  ///< The whole slot, to be reposted when released.
         std::uint64_t sequence{0};
     };
 
-    // Reads one packet off the session and says what was in it. The packet is not
-    // released: its chunk goes back when its payload does.
+    // Pulls the next posted receive and answers what arrived in it.
+    nbio::async::Task<nbio::utility::expected<RdmaReceiveResult, std::string>> PullPacket();
+
+    // Reads one packet off the session and says what was in it. The slot is not
+    // reposted: it goes back when its payload does.
     nbio::async::Task<nbio::utility::expected<Incoming, std::string>> ReadPacket();
-    // Works out what a packet meant: the ack inside it widens what may be sent, and a
-    // payload goes on the queue for whoever asks for one.
+
+    // Works out what a packet meant: the ack inside it widens what may be sent, and
+    // a payload goes on the queue for whoever asks for one.
     nbio::async::Task<nbio::utility::expected<void, std::string>> Absorb(Incoming packet);
 
     // One packet carrying `payload`, waited for: the header, the sequence, whatever
-    // acknowledgement is owed, and the type the caller says it is. A meta packet is the
-    // one thing sent through here that is not a payload, and its numbers mean the same
-    // thing they mean on every other packet.
+    // acknowledgement is owed, and the type the caller says it is.
     nbio::async::Task<nbio::utility::expected<void, std::string>> SendPacket(std::span<const char> payload,
                                                                              nbio::net::RdmaPacketType type);
 
@@ -111,16 +153,11 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
 
     bool RoomFor(std::uint64_t packets) const noexcept;
 
-    // What start() runs: the reader's own loop, taking packets off the session until it
-    // fails or the service is stopped. A static member rather than a lambda, so that the
-    // service arrives as an ordinary parameter -- a coroutine's body is the wrong place
-    // to be reading a closure.
-    static nbio::async::Task<void> Read(std::shared_ptr<RdmaDeliverService> self);
+    // Posts the slot a payload came in, which is also what lets the peer send more.
+    nbio::utility::expected<void, std::string> Repost(std::span<char> chunk);
 
-    // What start() Spawned the reader as, so that stop() can cancel it. Cancelling is
-    // what lets the scheduler destroy the frame, and destroying the frame is what
-    // releases the reference that frame holds to this service.
-    nbio::async::CoroutineJoinHandle reader_{};
+    // What start() runs: the reader's own loop.
+    static nbio::async::Task<void> Read(std::shared_ptr<RdmaDeliverService> self);
 
     std::shared_ptr<RdmaSessionService> session_;
     Layout mine_;
@@ -128,23 +165,32 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     bool handshaken_{false};
     bool ended_{false};
 
-    // This end's own numbering, and the two counters that decide whether it may send:
-    // what it has sent, and what the peer has said it finished with.
+    // This end's own numbering, and the two counters that decide whether it may send.
     std::uint64_t sent_{0};
     std::uint64_t acknowledged_{0};
-    // What this end has taken, and what has been released: the second is what an ack
-    // carries, because the second is what says the buffers are back.
     std::uint64_t taken_{0};
     std::uint64_t released_{0};
 
-    // Payloads taken off the session and not yet asked for. Each one is holding a chunk
-    // out of the receive pool until it is released.
+    // Payloads taken off the session and not yet asked for.
     std::deque<Held> ready_;
-    // What the peer has been told, so that an acknowledgement is only sent when it says
-    // something new.
     std::uint64_t acknowledged_to_peer_{0};
     nbio::notification::ConditionVariable room_;
     nbio::notification::ConditionVariable ready_available_;
+
+    // The receive slots, in posting order, and the sequence number of the next one
+    // to pull. Posts and pulls are appended and consumed in one order, so the
+    // cursor only ever counts up.
+    std::vector<std::span<char>> receive_slots_;
+    RdmaSeq next_receive_seq_{0};
+
+    // The send slots, and the sequence number each last carried. A slot is only
+    // reused after that number has retired, which is the whole of the send
+    // lifetime rule.
+    std::vector<std::span<char>> send_slots_;
+    std::vector<RdmaSeq> send_slot_seq_;
+    std::size_t send_cursor_{0};
+
+    nbio::async::CoroutineJoinHandle reader_{};
 };
 }  // namespace nbio::net
 

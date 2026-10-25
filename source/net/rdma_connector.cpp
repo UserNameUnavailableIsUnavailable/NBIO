@@ -3,13 +3,15 @@
 #include <fcntl.h>
 #include <infiniband/verbs.h>
 #include <poll.h>
+#include <rdma/rdma_cma.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
+#include <cstdint>
+#include <limits>
 #include <nbio/net/rdma_connector.hpp>
-#include <nbio/utility/bitmap.hpp>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -17,7 +19,7 @@
 
 namespace nbio::net {
 namespace {
-std::error_code Failing([[maybe_unused]] std::string_view what) { return {errno, std::system_category()}; }
+std::error_code Failing([[maybe_unused]] const char* what) { return {errno, std::system_category()}; }
 
 std::string DescribeCmEvent(const ::rdma_cm_event& event) {
     std::string description = ::rdma_event_str(event.event);
@@ -42,22 +44,65 @@ RdmaResult<::rdma_cm_event*> WaitCmEvent(::rdma_event_channel* channel, int time
     }
     return event;
 }
+
+// Whether `chunk` lies entirely inside `region`. This is the whole of the check a
+// post needs: the descriptor carries the region's key, so a span inside the region
+// needs no further proof that it may be used.
+bool Contains(std::span<const char> region, std::span<const char> chunk) noexcept {
+    if (chunk.empty() || region.empty()) {
+        return false;
+    }
+    const auto begin = reinterpret_cast<std::uintptr_t>(region.data());
+    const auto end = begin + region.size();
+    const auto first = reinterpret_cast<std::uintptr_t>(chunk.data());
+    if (first < begin || first > end) {
+        return false;
+    }
+    return chunk.size() <= end - first;
+}
 }  // namespace
 
+void RdmaConnector::Ring::Reset(std::size_t capacity) {
+    slots_.assign(capacity == 0 ? 1 : capacity, Slot{});
+    head_ = 1;
+    next_seq_ = 1;
+    last_reaped_ = 0;
+}
+
+void RdmaConnector::Ring::AdvanceHead() noexcept {
+    while (head_ < next_seq_) {
+        const Slot& slot = At(head_);
+        // A slot that is still in flight must not be freed: its completion would
+        // land on whatever was posted into it next.
+        if (!slot.dropped || slot.in_flight) {
+            break;
+        }
+        if (slot.seq != head_) {
+            break;
+        }
+        At(head_) = Slot{};
+        ++head_;
+    }
+}
+
 RdmaConnector::RdmaConnector(::rdma_cm_id* communication_id, ::rdma_event_channel* event_channel,
-                             RdmaResourceManager& resources)
-    : communication_id_(communication_id),
-      event_channel_(event_channel),
-      resources_(&resources),
-      send_lkey_(resources.send_region()->lkey),
-      receive_lkey_(resources.receive_region()->lkey) {
+                             RdmaResource& resource, RdmaChannelOptions options)
+    : communication_id_(communication_id), event_channel_(event_channel), resource_(&resource), options_(options) {
     if (!communication_id_ || !event_channel_) {
         throw std::invalid_argument("an rdma connection needs a communication id and a channel of its own");
     }
+    // A connection the kernel has already resolved for us: the id belongs to a
+    // request, so there is nothing to resolve and no destination to reach. The queue
+    // pair is built here and not accepted: the caller posts its receives first, and
+    // Establish() is what lets the peer send.
+    passive_ = true;
+    send_ring_.Reset(options_.send_queue_depth);
+    receive_ring_.Reset(options_.receive_queue_depth);
     BuildQueuePair();
 }
 
-RdmaConnector::RdmaConnector(RdmaResourceManager& resources) : resources_(&resources) {
+RdmaConnector::RdmaConnector(RdmaResource& resource, RdmaChannelOptions options)
+    : resource_(&resource), options_(options) {
     // The channel comes first, because the id is created on it, and it is the
     // channel this connection's own events -- established, rejected, disconnected --
     // arrive on for the rest of its life.
@@ -72,13 +117,15 @@ RdmaConnector::RdmaConnector(RdmaResourceManager& resources) : resources_(&resou
         event_channel_ = nullptr;
         throw std::system_error(why, "Failed to create an rdma id");
     }
-    // The keys are the manager's to give, and they are the same for every
-    // connection that shares its regions.
-    send_lkey_ = resources.send_region()->lkey;
-    receive_lkey_ = resources.receive_region()->lkey;
+    send_ring_.Reset(options_.send_queue_depth);
+    receive_ring_.Reset(options_.receive_queue_depth);
 }
 
-RdmaResult<void> RdmaConnector::Bind(const net::Address& local) noexcept {
+RdmaResult<void> RdmaConnector::BindSource(const net::Address& local) noexcept {
+    if (passive_) [[unlikely]] {
+        // A passive connection was bound by the listener that admitted it.
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
+    }
     if (::rdma_bind_addr(communication_id_, const_cast<::sockaddr*>(local.storage<::sockaddr>())) != 0) [[unlikely]] {
         return utility::unexpected(Failing("Failed to bind the rdma address"));
     }
@@ -87,80 +134,69 @@ RdmaResult<void> RdmaConnector::Bind(const net::Address& local) noexcept {
 
 void RdmaConnector::BuildQueuePair() {
     try {
-        // The completion channel comes first, because it is what the queues report
-        // on and what an event loop watches for them. Both queues share it: a
-        // completion in either direction makes its one fd readable, which is why
-        // both directions are polled from the same event.
-        completion_channel_ = ::ibv_create_comp_channel(communication_id_->verbs);
-        if (!completion_channel_) {
-            throw std::runtime_error("Failed to create rdma completion channel");
+        // Each direction gets its own completion channel, so that a wait in one
+        // direction can never be woken by -- or have to drain -- a completion in
+        // the other.
+        send_completion_channel_ = ::ibv_create_comp_channel(communication_id_->verbs);
+        if (!send_completion_channel_) {
+            throw std::runtime_error("Failed to create the rdma send completion channel");
         }
-        // Draining the queue reads events until ibv_get_cq_event reports EAGAIN, so
-        // the fd has to be non-blocking or that loop never returns -- and a driver
+        receive_completion_channel_ = ::ibv_create_comp_channel(communication_id_->verbs);
+        if (!receive_completion_channel_) {
+            throw std::runtime_error("Failed to create the rdma receive completion channel");
+        }
+        // Draining a queue reads events until ibv_get_cq_event reports EAGAIN, so
+        // the fds have to be non-blocking or that loop never returns -- and a driver
         // that hands an event to a blocking reader would stop the event loop instead
         // of waking it.
-        const int flags = ::fcntl(completion_channel_->fd, F_GETFL, 0);
-        if (flags < 0 || ::fcntl(completion_channel_->fd, F_SETFL, flags | O_NONBLOCK) < 0) [[unlikely]] {
-            throw std::runtime_error("Failed to make the rdma completion channel non-blocking");
+        for (auto* channel : {send_completion_channel_, receive_completion_channel_}) {
+            const int flags = ::fcntl(channel->fd, F_GETFL, 0);
+            if (flags < 0 || ::fcntl(channel->fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+                throw std::runtime_error("Failed to make an rdma completion channel non-blocking");
+            }
         }
 
-        send_completion_queue_ =
-            ::ibv_create_cq(communication_id_->verbs, kQueueDepth, nullptr, completion_channel_, 0);
+        send_completion_queue_ = ::ibv_create_cq(communication_id_->verbs, static_cast<int>(options_.send_queue_depth),
+                                                 nullptr, send_completion_channel_, 0);
         if (!send_completion_queue_) {
-            throw std::runtime_error("Failed to create rdma send completion queue");
+            throw std::runtime_error("Failed to create the rdma send completion queue");
         }
-        receive_completion_queue_ =
-            ::ibv_create_cq(communication_id_->verbs, kQueueDepth, nullptr, completion_channel_, 0);
+        receive_completion_queue_ = ::ibv_create_cq(
+            communication_id_->verbs, static_cast<int>(options_.receive_queue_depth), nullptr, receive_completion_channel_, 0);
         if (!receive_completion_queue_) {
-            throw std::runtime_error("Failed to create rdma receive completion queue");
+            throw std::runtime_error("Failed to create the rdma receive completion queue");
         }
 
         ibv_qp_init_attr attributes{
             .qp_context = nullptr,
             .send_cq = send_completion_queue_,
             .recv_cq = receive_completion_queue_,
-            .srq = nullptr,  // FIXME: maybe SRQ is a better choice than fixed receive queue?
+            .srq = nullptr,
             .cap =
                 {
-                    .max_send_wr = kQueueDepth,
-                    .max_recv_wr = kQueueDepth,
-                    .max_send_sge = 1,
-                    .max_recv_sge = 1,
-                    .max_inline_data = 0,
+                    .max_send_wr = options_.send_queue_depth,
+                    .max_recv_wr = options_.receive_queue_depth,
+                    .max_send_sge = options_.max_send_sge,
+                    .max_recv_sge = options_.max_receive_sge,
+                    .max_inline_data = options_.inline_threshold,
                 },
             .qp_type = IBV_QPT_RC,
             .sq_sig_all = 0,
         };
-        if (::rdma_create_qp(communication_id_, resources_->protection_domain(), &attributes) != 0) {
-            throw std::runtime_error("Failed to create rdma queue pair");
+        if (::rdma_create_qp(communication_id_, resource_->protection_domain(), &attributes) != 0) {
+            throw std::runtime_error("Failed to create the rdma queue pair");
         }
         queue_pair_ = communication_id_->qp;
 
-        // A stream whose queues are not armed can never be polled, and the
-        // constructor is the one place allowed to throw, so the failure
-        // unwinds here instead of being carried as state.
-        if (auto armed = ArmCompletionQueues(); !armed) [[unlikely]]
-        {
-            throw std::system_error(armed.error(), "Failed to arm the RDMA completion queues");
+        // A stream whose queues are not armed can never be waited on, and the
+        // constructor is the one place allowed to throw, so the failure unwinds
+        // here instead of being carried as state.
+        if (auto armed = Arm(send_completion_queue_); !armed) [[unlikely]] {
+            throw std::system_error(armed.error(), "Failed to arm the rdma send completion queue");
         }
-
-        for (std::uint32_t i = 0; i < kSendChunks; ++i) {
-            auto chunk = resources_->send_memory().acquire();
-            if (!chunk) {
-                throw std::runtime_error("rdma send pool cannot admit another connection");
-            }
-            free_send_chunks_.push_back(*chunk);
+        if (auto armed = Arm(receive_completion_queue_); !armed) [[unlikely]] {
+            throw std::system_error(armed.error(), "Failed to arm the rdma receive completion queue");
         }
-        for (std::uint32_t i = 0; i < kReceiveChunks; ++i) {
-            auto chunk = resources_->receive_memory().acquire();
-            if (!chunk) {
-                throw std::runtime_error("rdma receive pool cannot admit another connection");
-            }
-            free_recv_chunks_.push_back(*chunk);
-        }
-
-        // Post all receive chunks, otherwise incoming sends will fail.
-        PostAllReceives();
     } catch (...) {
         // The id and the channel stay: the listener rejects the connection with the
         // one and this object's destructor gives back the other.
@@ -174,7 +210,6 @@ void RdmaConnector::ReleaseDeviceObjects() noexcept {
         ::rdma_destroy_qp(communication_id_);
         queue_pair_ = nullptr;
     }
-    ReclaimChunks();
     if (send_completion_queue_) {
         ::ibv_destroy_cq(send_completion_queue_);
         send_completion_queue_ = nullptr;
@@ -183,9 +218,13 @@ void RdmaConnector::ReleaseDeviceObjects() noexcept {
         ::ibv_destroy_cq(receive_completion_queue_);
         receive_completion_queue_ = nullptr;
     }
-    if (completion_channel_) {
-        ::ibv_destroy_comp_channel(completion_channel_);
-        completion_channel_ = nullptr;
+    if (send_completion_channel_) {
+        ::ibv_destroy_comp_channel(send_completion_channel_);
+        send_completion_channel_ = nullptr;
+    }
+    if (receive_completion_channel_) {
+        ::ibv_destroy_comp_channel(receive_completion_channel_);
+        receive_completion_channel_ = nullptr;
     }
 }
 
@@ -203,49 +242,49 @@ void swap(RdmaConnector& lhs, RdmaConnector& rhs) noexcept {
     using std::swap;
     swap(lhs.communication_id_, rhs.communication_id_);
     swap(lhs.event_channel_, rhs.event_channel_);
-    swap(lhs.completion_channel_, rhs.completion_channel_);
+    swap(lhs.send_completion_channel_, rhs.send_completion_channel_);
+    swap(lhs.receive_completion_channel_, rhs.receive_completion_channel_);
     swap(lhs.send_completion_queue_, rhs.send_completion_queue_);
     swap(lhs.receive_completion_queue_, rhs.receive_completion_queue_);
     swap(lhs.queue_pair_, rhs.queue_pair_);
-    swap(lhs.resources_, rhs.resources_);
-    swap(lhs.send_lkey_, rhs.send_lkey_);
-    swap(lhs.receive_lkey_, rhs.receive_lkey_);
-    swap(lhs.free_send_chunks_, rhs.free_send_chunks_);
-    swap(lhs.busy_send_chunks_, rhs.busy_send_chunks_);
-    swap(lhs.pending_send_chunks_, rhs.pending_send_chunks_);
-    swap(lhs.free_recv_chunks_, rhs.free_recv_chunks_);
-    swap(lhs.pending_recv_chunks_, rhs.pending_recv_chunks_);
-    swap(lhs.ready_recv_chunks_, rhs.ready_recv_chunks_);
-    swap(lhs.busy_recv_chunks_, rhs.busy_recv_chunks_);
-    swap(lhs.send_unacked_events_, rhs.send_unacked_events_);
-    swap(lhs.receive_unacked_events_, rhs.receive_unacked_events_);
+    swap(lhs.resource_, rhs.resource_);
+    swap(lhs.options_, rhs.options_);
+    swap(lhs.send_ring_, rhs.send_ring_);
+    swap(lhs.receive_ring_, rhs.receive_ring_);
     swap(lhs.error_, rhs.error_);
     swap(lhs.peer_closed_, rhs.peer_closed_);
+    swap(lhs.passive_, rhs.passive_);
+    swap(lhs.established_, rhs.established_);
 }
 
 RdmaConnector::~RdmaConnector() noexcept { Reset(); }
 
+void RdmaConnector::Close() noexcept { Reset(); }
+
 void RdmaConnector::Reset() noexcept {
-    // A disconnect first, so the peer is told the connection is over rather than
-    // left with a queue pair that went quiet. Its disconnect event is the peer's
-    // to read on its own channel.
-    if (communication_id_ && queue_pair_) {
+    // A connection that was prepared but never established still holds a request the
+    // peer is waiting on. Rejecting is how this end says no, rather than leaving the
+    // peer to time out.
+    if (communication_id_ && !established_) {
+        if (passive_ && queue_pair_) {
+            ::rdma_reject(communication_id_, nullptr, 0);
+        }
+    } else if (communication_id_ && queue_pair_) {
+        // A disconnect first, so the peer is told the connection is over rather than
+        // left with a queue pair that went quiet. Its disconnect event is the peer's
+        // to read on its own channel.
         ::rdma_disconnect(communication_id_);
     }
     // Destroying the queue pair discards outstanding work requests, so it has to
-    // happen before the chunks go back to the pool.
+    // happen before their bookkeeping goes.
     if (queue_pair_) {
         ::rdma_destroy_qp(communication_id_);
         queue_pair_ = nullptr;
     }
-    ReclaimChunks();
-
-    // Empty both queues and acknowledge every event before destroying them. A
-    // provider will not finish tearing a completion queue down while it still
-    // has completions or unacknowledged events outstanding -- siw waits inside
-    // ibv_destroy_cq for them -- so a link that is closed right after its last
-    // completion would hang here instead of returning. Nothing reads these
-    // completions: the queue pair is gone and every chunk has been reclaimed.
+    // Empty both queues before destroying them. A provider will not finish tearing a
+    // completion queue down while it still has completions or unacknowledged events
+    // outstanding -- siw waits inside ibv_destroy_cq for them -- so a link closed
+    // right after its last completion would hang here instead of returning.
     DrainCompletionQueue(send_completion_queue_);
     DrainCompletionQueue(receive_completion_queue_);
     if (receive_completion_queue_) {
@@ -256,9 +295,13 @@ void RdmaConnector::Reset() noexcept {
         ::ibv_destroy_cq(send_completion_queue_);
         send_completion_queue_ = nullptr;
     }
-    if (completion_channel_) {
-        ::ibv_destroy_comp_channel(completion_channel_);
-        completion_channel_ = nullptr;
+    if (receive_completion_channel_) {
+        ::ibv_destroy_comp_channel(receive_completion_channel_);
+        receive_completion_channel_ = nullptr;
+    }
+    if (send_completion_channel_) {
+        ::ibv_destroy_comp_channel(send_completion_channel_);
+        send_completion_channel_ = nullptr;
     }
     if (communication_id_) {
         ::rdma_destroy_id(communication_id_);
@@ -268,72 +311,328 @@ void RdmaConnector::Reset() noexcept {
         ::rdma_destroy_event_channel(event_channel_);
         event_channel_ = nullptr;
     }
+    // Every buffer named by a request is the caller's again: the queue pair is
+    // gone, so nothing will ever complete or touch them.
+    send_ring_.Reset(options_.send_queue_depth);
+    receive_ring_.Reset(options_.receive_queue_depth);
     peer_closed_ = true;
 }
 
 void RdmaConnector::DrainCompletionQueue(::ibv_cq* queue) noexcept {
-    if (!queue || !completion_channel_) {
+    if (!queue) {
         return;
     }
-
-    ibv_wc completions[kQueueDepth];
-    while (::ibv_poll_cq(queue, kQueueDepth, completions) > 0) {
+    ibv_wc completions[16];
+    while (::ibv_poll_cq(queue, 16, completions) > 0) {
     }
-
-    // Events are counted as the completion channel hands them over and only ever
-    // acknowledged where they are consumed, so whatever is left is acknowledged
-    // here.
-    unsigned& unacked = queue == send_completion_queue_ ? send_unacked_events_ : receive_unacked_events_;
-    if (unacked != 0) {
-        ::ibv_ack_cq_events(queue, unacked);
-        unacked = 0;
+    // Events are acknowledged where they are consumed, so whatever is left is
+    // acknowledged here; a queue with unacknowledged events refuses to be destroyed.
+    ::ibv_comp_channel* channel =
+        queue == send_completion_queue_ ? send_completion_channel_ : receive_completion_channel_;
+    if (channel) {
+        ::ibv_cq* notified{nullptr};
+        void* context{nullptr};
+        unsigned count = 0;
+        while (::ibv_get_cq_event(channel, &notified, &context) == 0) {
+            ++count;
+        }
+        if (count != 0) {
+            ::ibv_ack_cq_events(queue, count);
+        }
     }
 }
 
-void RdmaConnector::ReclaimChunks() noexcept {
-    if (resources_ == nullptr) {
+RdmaResult<void> RdmaConnector::Arm(::ibv_cq* queue) noexcept {
+    if (queue && ::ibv_req_notify_cq(queue, 0) != 0) [[unlikely]] {
+        return utility::unexpected(Failing("Failed to arm an rdma completion queue"));
+    }
+    return {};
+}
+
+void RdmaConnector::DrainEvents(::ibv_comp_channel* channel, ::ibv_cq* queue) noexcept {
+    if (!channel || !queue) {
         return;
     }
-    for (const auto chunk : free_send_chunks_) {
-        resources_->send_memory().release(chunk);
+    ::ibv_cq* notified{nullptr};
+    void* context{nullptr};
+    unsigned count = 0;
+    while (::ibv_get_cq_event(channel, &notified, &context) == 0) {
+        ++count;
     }
-    for (const auto chunk : busy_send_chunks_) {
-        resources_->send_memory().release(chunk);
+    if (count != 0) {
+        ::ibv_ack_cq_events(queue, count);
     }
-    for (const auto chunk : pending_send_chunks_) {
-        resources_->send_memory().release(chunk);
-    }
-    for (const auto chunk : free_recv_chunks_) {
-        resources_->receive_memory().release(chunk);
-    }
-    for (const auto chunk : busy_recv_chunks_) {
-        resources_->receive_memory().release(chunk);
-    }
-    for (const auto chunk : pending_recv_chunks_) {
-        resources_->receive_memory().release(chunk);
-    }
-    for (const auto& ready : ready_recv_chunks_) {
-        resources_->receive_memory().release(ready.first);
-    }
-
-    free_send_chunks_.clear();
-    busy_send_chunks_.clear();
-    pending_send_chunks_.clear();
-    free_recv_chunks_.clear();
-    busy_recv_chunks_.clear();
-    pending_recv_chunks_.clear();
-    ready_recv_chunks_.clear();
 }
 
-RdmaConnector::Handle RdmaConnector::completion_channel_handle() const noexcept {
-    return completion_channel_ ? completion_channel_->fd : -1;
+void RdmaConnector::HandleCompletion(Ring& ring, const ::ibv_wc& completion) noexcept {
+    const RdmaSeq seq = completion.wr_id;
+    if (!ring.Live(seq)) {
+        return;
+    }
+    Slot& slot = ring.At(seq);
+    if (slot.seq != seq) {
+        return;
+    }
+    slot.in_flight = false;
+    slot.bytes = completion.byte_len;
+    if (completion.status != IBV_WC_SUCCESS) [[unlikely]] {
+        if (completion.status == IBV_WC_WR_FLUSH_ERR) {
+            // The queue pair is being torn down or has gone to error: every request
+            // still posted is flushed, and none of them failed on its own account.
+            peer_closed_ = true;
+            slot.status = make_error_code(RdmaErrc::kPeerClosed);
+        } else {
+            Fail(make_error_code(RdmaErrc::kCompletionFailed));
+            slot.status = error_;
+        }
+    }
+    if (!slot.dropped) {
+        slot.completed = true;
+    }
+    if (seq > ring.last_reaped_) {
+        ring.last_reaped_ = seq;
+    }
+    ring.AdvanceHead();
 }
 
-RdmaConnector::Handle RdmaConnector::event_channel_handle() const noexcept {
-    return event_channel_ ? event_channel_->fd : -1;
+RdmaResult<std::size_t> RdmaConnector::ReapSend() noexcept {
+    if (!send_completion_queue_) {
+        return std::size_t{0};
+    }
+    std::size_t reaped = 0;
+    ibv_wc completions[16];
+    while (true) {
+        const int count = ::ibv_poll_cq(send_completion_queue_, 16, completions);
+        if (count <= 0) {
+            break;
+        }
+        for (int i = 0; i < count; ++i) {
+            HandleCompletion(send_ring_, completions[i]);
+        }
+        reaped += static_cast<std::size_t>(count);
+    }
+    return reaped;
 }
 
-void RdmaConnector::Close() noexcept { Reset(); }
+RdmaResult<std::size_t> RdmaConnector::ReapReceive() noexcept {
+    if (!receive_completion_queue_) {
+        return std::size_t{0};
+    }
+    std::size_t reaped = 0;
+    ibv_wc completions[16];
+    while (true) {
+        const int count = ::ibv_poll_cq(receive_completion_queue_, 16, completions);
+        if (count <= 0) {
+            break;
+        }
+        for (int i = 0; i < count; ++i) {
+            HandleCompletion(receive_ring_, completions[i]);
+        }
+        reaped += static_cast<std::size_t>(count);
+    }
+    return reaped;
+}
+
+RdmaResult<RdmaSeq> RdmaConnector::PostSend(std::span<const char> buffer) noexcept {
+    if (failed()) [[unlikely]] {
+        return utility::unexpected(error_);
+    }
+    if (queue_pair_ == nullptr) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
+    }
+    if (buffer.empty() || buffer.size() > std::numeric_limits<std::uint32_t>::max() ||
+        !Contains(resource_->send_memory_region(), buffer)) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidBuffer));
+    }
+    if (!send_ring_.has_room()) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kQueueFull));
+    }
+
+    const RdmaSeq seq = send_ring_.Next();
+    Slot& slot = send_ring_.At(seq);
+    slot = Slot{.seq = seq,
+                .address = const_cast<char*>(buffer.data()),
+                .length = static_cast<std::uint32_t>(buffer.size()),
+                .in_flight = true};
+
+    ibv_sge segment{.addr = reinterpret_cast<std::uintptr_t>(buffer.data()),
+                    .length = static_cast<std::uint32_t>(buffer.size()),
+                    .lkey = resource_->send_lkey()};
+    ibv_send_wr request{};
+    request.wr_id = seq;
+    request.sg_list = &segment;
+    request.num_sge = 1;
+    request.opcode = IBV_WR_SEND;
+    request.send_flags = IBV_SEND_SIGNALED;
+
+    ibv_send_wr* rejected{nullptr};
+    if (const int code = ::ibv_post_send(queue_pair_, &request, &rejected); code != 0) [[unlikely]] {
+        // The ring did not consume the number, so the slot goes back untouched.
+        slot = Slot{};
+        return utility::unexpected(std::error_code{code, std::generic_category()});
+    }
+    send_ring_.Advance();
+    return seq;
+}
+
+RdmaResult<RdmaSeq> RdmaConnector::PostReceive(std::span<char> buffer) noexcept {
+    if (failed()) [[unlikely]] {
+        return utility::unexpected(error_);
+    }
+    if (queue_pair_ == nullptr) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
+    }
+    if (buffer.empty() || buffer.size() > std::numeric_limits<std::uint32_t>::max() ||
+        !Contains(resource_->receive_memory_region(), buffer)) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidBuffer));
+    }
+    if (!receive_ring_.has_room()) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kQueueFull));
+    }
+
+    const RdmaSeq seq = receive_ring_.Next();
+    Slot& slot = receive_ring_.At(seq);
+    slot = Slot{.seq = seq,
+                .address = buffer.data(),
+                .length = static_cast<std::uint32_t>(buffer.size()),
+                .in_flight = true};
+
+    ibv_sge segment{.addr = reinterpret_cast<std::uintptr_t>(buffer.data()),
+                    .length = static_cast<std::uint32_t>(buffer.size()),
+                    .lkey = resource_->receive_lkey()};
+    ibv_recv_wr request{};
+    request.wr_id = seq;
+    request.sg_list = &segment;
+    request.num_sge = 1;
+
+    ibv_recv_wr* rejected{nullptr};
+    if (const int code = ::ibv_post_recv(queue_pair_, &request, &rejected); code != 0) [[unlikely]] {
+        slot = Slot{};
+        return utility::unexpected(std::error_code{code, std::generic_category()});
+    }
+    receive_ring_.Advance();
+    return seq;
+}
+
+RdmaResult<RdmaSeq> RdmaConnector::WaitOn(Ring& ring, ::ibv_cq* queue, ::ibv_comp_channel* channel, RdmaSeq seq,
+                                          int timeout_ms) noexcept {
+    if (seq == 0 || seq >= ring.Next()) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidSequence));
+    }
+    // Completions that have already been reaped are answered first: a stream that
+    // failed later must not hide the results that arrived before it did.
+    if (ring.last_reaped_ >= seq) [[likely]] {
+        return ring.last_reaped_;
+    }
+    if (failed()) [[unlikely]] {
+        return utility::unexpected(error_);
+    }
+    if (queue == nullptr || channel == nullptr) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
+    }
+
+    // Arm before looking: a completion that lands between the look and the poll
+    // would raise its event before anyone asked for one, and the wait would sleep
+    // through it.
+    if (auto armed = Arm(queue); !armed) [[unlikely]] {
+        return utility::unexpected(armed.error());
+    }
+    while (true) {
+        if (queue == send_completion_queue_) {
+            (void)ReapSend();
+        } else {
+            (void)ReapReceive();
+        }
+        if (ring.last_reaped_ >= seq) {
+            return ring.last_reaped_;
+        }
+        if (failed()) [[unlikely]] {
+            return utility::unexpected(error_);
+        }
+        if (timeout_ms == 0) {
+            return ring.last_reaped_;
+        }
+
+        pollfd waiter{.fd = channel->fd, .events = POLLIN, .revents = 0};
+        if (::poll(&waiter, 1, timeout_ms) <= 0) {
+            // A deadline that expired is not a failure: the mark says how far the
+            // device got, and the caller compares it with what it asked for.
+            return ring.last_reaped_;
+        }
+        DrainEvents(channel, queue);
+        if (auto armed = Arm(queue); !armed) [[unlikely]] {
+            return utility::unexpected(armed.error());
+        }
+    }
+}
+
+RdmaResult<RdmaSeq> RdmaConnector::WaitSend(RdmaSeq seq, int timeout_ms) noexcept {
+    return WaitOn(send_ring_, send_completion_queue_, send_completion_channel_, seq, timeout_ms);
+}
+
+RdmaResult<RdmaSeq> RdmaConnector::WaitReceive(RdmaSeq seq, int timeout_ms) noexcept {
+    return WaitOn(receive_ring_, receive_completion_queue_, receive_completion_channel_, seq, timeout_ms);
+}
+
+RdmaResult<RdmaSendResult> RdmaConnector::FetchSend(RdmaSeq seq) noexcept {
+    if (seq == 0 || seq >= send_ring_.Next()) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidSequence));
+    }
+    const Slot& slot = send_ring_.At(seq);
+    if (slot.seq != seq || slot.dropped) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidSequence));
+    }
+    if (!slot.completed) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kNotReady));
+    }
+    if (slot.status) [[unlikely]] {
+        return utility::unexpected(slot.status);
+    }
+    return RdmaSendResult{.seq = seq, .buffer = std::span<char>(slot.address, slot.length)};
+}
+
+RdmaResult<RdmaReceiveResult> RdmaConnector::FetchReceive(RdmaSeq seq) noexcept {
+    if (seq == 0 || seq >= receive_ring_.Next()) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidSequence));
+    }
+    const Slot& slot = receive_ring_.At(seq);
+    if (slot.seq != seq || slot.dropped) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidSequence));
+    }
+    if (!slot.completed) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kNotReady));
+    }
+    if (slot.status) [[unlikely]] {
+        return utility::unexpected(slot.status);
+    }
+    return RdmaReceiveResult{.seq = seq,
+                             .buffer = std::span<char>(slot.address, slot.length),
+                             .bytes = slot.bytes};
+}
+
+void RdmaConnector::DropSend(RdmaSeq seq) noexcept {
+    if (seq == 0 || seq >= send_ring_.Next()) {
+        return;
+    }
+    Slot& slot = send_ring_.At(seq);
+    if (slot.seq != seq) {
+        return;
+    }
+    slot.dropped = true;
+    send_ring_.AdvanceHead();
+}
+
+void RdmaConnector::DropReceive(RdmaSeq seq) noexcept {
+    if (seq == 0 || seq >= receive_ring_.Next()) {
+        return;
+    }
+    Slot& slot = receive_ring_.At(seq);
+    if (slot.seq != seq) {
+        return;
+    }
+    slot.dropped = true;
+    receive_ring_.AdvanceHead();
+}
 
 void RdmaConnector::Fail(std::error_code error) noexcept {
     // The first failure is the cause and the rest are its consequences, so only
@@ -343,308 +642,98 @@ void RdmaConnector::Fail(std::error_code error) noexcept {
     }
 }
 
-RdmaResult<RdmaBufferResult> RdmaConnector::Acquire() noexcept {
-    if (failed()) [[unlikely]] {
-        return utility::unexpected(error_);
-    }
-    if (queue_pair_ == nullptr) [[unlikely]] {
-        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
-    }
-    if (free_send_chunks_.empty()) {
-        return RdmaBufferResult{};
-    }
-    auto ret = free_send_chunks_.front();
-    busy_send_chunks_.splice(busy_send_chunks_.end(), free_send_chunks_, free_send_chunks_.begin());
-    return RdmaBufferResult{.state = RdmaBufferState::kAvailable, .buffer = resources_->send_memory().data(ret)};
-}
-
-RdmaResult<void> RdmaConnector::Send(std::span<char> chunk, std::size_t length) noexcept {
-    if (failed()) [[unlikely]] {
-        return utility::unexpected(error_);
-    }
-    if (queue_pair_ == nullptr) [[unlikely]] {
-        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
-    }
-
-    auto exists = [this, &chunk](utility::BitmapMemory::Chunk other) {
-        return chunk.data() == resources_->send_memory().data(other).data();
-    };
-    auto it = std::find_if(busy_send_chunks_.begin(), busy_send_chunks_.end(), exists);
-    if (it == busy_send_chunks_.end()) [[unlikely]] {
-        // A caller that never acquired this chunk would otherwise post memory
-        // the device does not own, so this is a programming error rather than a
-        // Daemon one -- but it is reported like any other failure rather than
-        // thrown, because a data-plane call must not unwind.
-        return utility::unexpected(make_error_code(RdmaErrc::kInvalidBuffer));
-    }
-    if (length > chunk.size()) [[unlikely]] {
-        return utility::unexpected(make_error_code(RdmaErrc::kInvalidBuffer));
-    }
-    if (length == 0) {
-        free_send_chunks_.splice(free_send_chunks_.end(), busy_send_chunks_, it);
+RdmaResult<void> RdmaConnector::SubmitEstablish() noexcept {
+    if (submitted_) {
         return {};
     }
-
-    ibv_sge segment{.addr = reinterpret_cast<std::uintptr_t>(chunk.data()),
-                    .length = static_cast<std::uint32_t>(length),
-                    .lkey = send_lkey_};
-    ibv_send_wr request{};
-    request.wr_id = it->index;
-    request.sg_list = &segment;
-    request.num_sge = 1;
-    request.opcode = IBV_WR_SEND;
-    request.send_flags = IBV_SEND_SIGNALED;
-
-    ibv_send_wr* rejected{nullptr};
-    if (const int code = ::ibv_post_send(queue_pair_, &request, &rejected); code != 0) [[unlikely]]
-    {
-        return utility::unexpected(std::error_code{code, std::generic_category()});
+    ::rdma_conn_param param{};
+    param.responder_resources = 1;
+    param.initiator_depth = 1;
+    param.retry_count = 7;
+    param.rnr_retry_count = 7;  // stall rather than fail when receives run dry
+    const int code = passive_ ? ::rdma_accept(communication_id_, &param) : ::rdma_connect(communication_id_, &param);
+    if (code != 0) [[unlikely]] {
+        return utility::unexpected(Failing("Failed to establish the rdma connection"));
     }
-
-    // The HCA owns the chunk until its completion retires it.
-    pending_send_chunks_.splice(pending_send_chunks_.end(), busy_send_chunks_, it);
+    submitted_ = true;
     return {};
-}
-
-RdmaResult<RdmaReceiveResult> RdmaConnector::Receive() noexcept {
-    if (failed()) [[unlikely]] {
-        return utility::unexpected(error_);
-    }
-    if (queue_pair_ == nullptr) [[unlikely]] {
-        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
-    }
-    if (ready_recv_chunks_.empty()) {
-        return RdmaReceiveResult{peer_closed_ ? RdmaReceiveState::kPeerClosed : RdmaReceiveState::kWouldBlock, {}};
-    }
-    auto [chunk, size] = ready_recv_chunks_.front();
-    ready_recv_chunks_.pop_front();
-    busy_recv_chunks_.push_back(chunk);
-    auto data = resources_->receive_memory().data(chunk);
-    return RdmaReceiveResult{RdmaReceiveState::kData, data.first(std::min(size, data.size()))};
-}
-
-RdmaResult<void> RdmaConnector::Release(std::span<char> chunk) noexcept {
-    if (failed()) [[unlikely]] {
-        return utility::unexpected(error_);
-    }
-    if (queue_pair_ == nullptr) [[unlikely]] {
-        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
-    }
-    auto it = std::find_if(busy_recv_chunks_.begin(), busy_recv_chunks_.end(),
-                           [this, &chunk](utility::BitmapMemory::Chunk other) {
-                               return chunk.data() == resources_->receive_memory().data(other).data();
-                           });
-    if (it == busy_recv_chunks_.end()) [[unlikely]] {
-        return utility::unexpected(make_error_code(RdmaErrc::kInvalidBuffer));
-    }
-    free_recv_chunks_.splice(free_recv_chunks_.end(), busy_recv_chunks_, it);
-    PostAllReceives();
-    if (failed()) [[unlikely]] {
-        return utility::unexpected(error_);
-    }
-    return {};
-}
-
-RdmaResult<void> RdmaConnector::ArmCompletionQueues() noexcept {
-    // Arming is what makes the completion channel raise an event, so a queue
-    // that refuses to arm would leave poll() waiting for something that can
-    // never arrive.
-    if (send_completion_queue_ && ::ibv_req_notify_cq(send_completion_queue_, 0) != 0) [[unlikely]] {
-        return utility::unexpected(Failing("Failed to arm the rdma send completion queue"));
-    }
-    if (receive_completion_queue_ && ::ibv_req_notify_cq(receive_completion_queue_, 0) != 0) [[unlikely]] {
-        return utility::unexpected(Failing("Failed to arm the rdma receive completion queue"));
-    }
-    return {};
-}
-
-void RdmaConnector::DrainCompletionEvents() noexcept {
-    if (!completion_channel_) {
-        return;
-    }
-
-    ::ibv_cq* queue{nullptr};
-    void* context{nullptr};
-    while (::ibv_get_cq_event(completion_channel_, &queue, &context) == 0) {
-        if (queue == send_completion_queue_) {
-            ++send_unacked_events_;
-        } else if (queue == receive_completion_queue_) {
-            ++receive_unacked_events_;
-        }
-    }
-}
-
-void RdmaConnector::AckCompletionEvents(::ibv_cq* queue) noexcept {
-    if (queue == send_completion_queue_ && send_unacked_events_ != 0) {
-        ::ibv_ack_cq_events(send_completion_queue_, send_unacked_events_);
-        send_unacked_events_ = 0;
-    } else if (queue == receive_completion_queue_ && receive_unacked_events_ != 0) {
-        ::ibv_ack_cq_events(receive_completion_queue_, receive_unacked_events_);
-        receive_unacked_events_ = 0;
-    }
-}
-
-RdmaResult<std::size_t> RdmaConnector::PollCompletionQueue(::ibv_cq* queue, int timeout_ms) noexcept {
-    if (!queue || !completion_channel_) {
-        return std::size_t{0};
-    }
-    if (failed()) [[unlikely]] {
-        return utility::unexpected(error_);
-    }
-
-    if (auto armed = ArmCompletionQueues(); !armed) [[unlikely]]
-    {
-        return utility::unexpected(armed.error());
-    }
-
-    if (timeout_ms != 0) {
-        pollfd waiter{.fd = completion_channel_->fd, .events = POLLIN, .revents = 0};
-        (void)::poll(&waiter, 1, timeout_ms);
-    }
-
-    DrainCompletionEvents();
-    AckCompletionEvents(queue);
-    if (auto armed = ArmCompletionQueues(); !armed) [[unlikely]]
-    {
-        return utility::unexpected(armed.error());
-    }
-
-    std::size_t total = 0;
-    ::ibv_wc completions[kQueueDepth];
-    while (true) {
-        const int count = ::ibv_poll_cq(queue, kQueueDepth, completions);
-        if (count <= 0) {
-            break;
-        }
-        for (int i = 0; i < count; ++i) {
-            HandleCompletion(completions[i]);
-        }
-        total += static_cast<std::size_t>(count);
-    }
-
-    if (failed()) [[unlikely]] {
-        // One of those completions reported the failure that ended this stream.
-        // Answering with a count would let the caller read it as progress.
-        return utility::unexpected(error_);
-    }
-    return total;
-}
-
-void RdmaConnector::PostAllReceives() noexcept {
-    if (failed()) {
-        return;
-    }
-    while (!free_recv_chunks_.empty()) {
-        const auto chunk = free_recv_chunks_.front();
-        free_recv_chunks_.pop_front();
-
-        const auto bytes = resources_->receive_memory().data(chunk);
-        ::ibv_sge segment{.addr = reinterpret_cast<std::uintptr_t>(bytes.data()),
-                          .length = static_cast<std::uint32_t>(bytes.size()),
-                          .lkey = receive_lkey_};
-
-        ::ibv_recv_wr request{};
-        request.wr_id = chunk.encode();
-        request.sg_list = &segment;
-        request.num_sge = 1;
-
-        ::ibv_recv_wr* rejected{nullptr};
-        if (const int code = ::ibv_post_recv(queue_pair_, &request, &rejected); code != 0) [[unlikely]]
-        {
-            free_recv_chunks_.push_front(chunk);
-            Fail(std::error_code{code, std::generic_category()});
-            return;
-        }
-        pending_recv_chunks_.push_back(chunk);
-    }
-}
-
-void RdmaConnector::HandleCompletion(const ::ibv_wc& completion) noexcept {
-    if (completion.status != IBV_WC_SUCCESS) [[unlikely]] {
-        peer_closed_ = true;
-        if (completion.status != IBV_WC_WR_FLUSH_ERR)  // shutdown
-        {
-            Fail(make_error_code(RdmaErrc::kCompletionFailed));
-        }
-        const auto chunk = utility::BitmapMemory::Chunk::decode(completion.wr_id);
-        auto remove = [chunk](std::list<utility::BitmapMemory::Chunk>& list) {
-            auto it = std::find(list.begin(), list.end(), chunk);
-            if (it == list.end()) {
-                return false;
-            }
-            list.erase(it);
-            return true;
-        };
-        if (completion.opcode & IBV_WC_SEND) {
-            if (!remove(pending_send_chunks_)) {
-                remove(busy_send_chunks_);
-            }
-            free_send_chunks_.push_back(chunk);
-        } else if (completion.opcode & IBV_WC_RECV) {
-            if (!remove(pending_recv_chunks_)) {
-                remove(busy_recv_chunks_);
-            }
-            free_recv_chunks_.push_back(chunk);
-        }
-        return;
-    }
-
-    const auto chunk = utility::BitmapMemory::Chunk::decode(completion.wr_id);
-    if (completion.opcode == IBV_WC_SEND) {
-        auto it = std::find(pending_send_chunks_.begin(), pending_send_chunks_.end(), chunk);
-        if (it != pending_send_chunks_.end()) {
-            free_send_chunks_.splice(free_send_chunks_.end(), pending_send_chunks_, it);
-        }
-    } else if (completion.opcode == IBV_WC_RECV) {
-        auto it = std::find(pending_recv_chunks_.begin(), pending_recv_chunks_.end(), chunk);
-        if (it != pending_recv_chunks_.end()) {
-            const auto size = static_cast<std::size_t>(completion.byte_len);
-            pending_recv_chunks_.erase(it);
-            ready_recv_chunks_.emplace_back(chunk, size);
-        }
-    } else [[unlikely]] {
-        assert(false && "unexpected opcode");
-    }
-}
-
-RdmaResult<std::size_t> RdmaConnector::PollSend(int timeout_ms) noexcept {
-    return PollCompletionQueue(send_completion_queue_, timeout_ms);
-}
-
-RdmaResult<std::size_t> RdmaConnector::PollReceive(int timeout_ms) noexcept {
-    return PollCompletionQueue(receive_completion_queue_, timeout_ms);
-}
-
-RdmaResult<std::size_t> RdmaConnector::Poll(int timeout_ms) noexcept {
-    // Only one half waits: waiting on both in turn would make the answer depend
-    // on which direction happened to arrive first. The second half is then
-    // reaped without waiting, which costs nothing when it has nothing.
-    auto send = PollSend(timeout_ms);
-    if (!send) [[unlikely]] {
-        return utility::unexpected(send.error());
-    }
-    auto receive = PollReceive(0);
-    if (!receive) [[unlikely]] {
-        return utility::unexpected(receive.error());
-    }
-    return *send + *receive;
 }
 
 RdmaResult<void> RdmaConnector::WaitForEstablish() noexcept {
-    auto event = WaitCmEvent(event_channel_, 2000);
-    if (!event) [[unlikely]] {
-        return utility::unexpected(event.error());
+    while (true) {
+        auto event = WaitCmEvent(event_channel_, -1);
+        if (!event) [[unlikely]] {
+            return utility::unexpected(event.error());
+        }
+        const auto type = (*event)->event;
+        const auto description = DescribeCmEvent(*(*event));
+        ::rdma_ack_cm_event(*event);
+        if (type == RDMA_CM_EVENT_ESTABLISHED) {
+            established_ = true;
+            return {};
+        }
+        if (type == RDMA_CM_EVENT_REJECTED || type == RDMA_CM_EVENT_UNREACHABLE ||
+            type == RDMA_CM_EVENT_CONNECT_ERROR || type == RDMA_CM_EVENT_ADDR_ERROR ||
+            type == RDMA_CM_EVENT_ROUTE_ERROR || type == RDMA_CM_EVENT_DEVICE_REMOVAL) [[unlikely]] {
+            return utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
+        }
+        // Anything else is about the connection but is not its outcome; keep waiting.
     }
-    const auto description = DescribeCmEvent(*(*event));
-    const bool established = (*event)->event == RDMA_CM_EVENT_ESTABLISHED;
-    ::rdma_ack_cm_event(*event);
-    if (!established) [[unlikely]] {
-        return utility::unexpected(make_error_code(RdmaErrc::kUnexpectedEvent));
-    }
-    return {};
 }
 
-RdmaResult<void> RdmaConnector::Connect(net::Address peer) noexcept {
+RdmaResult<void> RdmaConnector::AdvanceEstablish() noexcept {
+    if (established_) {
+        return {};
+    }
+    // The same rule the blocking form enforces: an active end without a target has
+    // nothing to connect to, and a channel must not park waiting for one.
+    if (!passive_ && queue_pair_ == nullptr) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kNoTarget));
+    }
+    if (queue_pair_ == nullptr) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
+    }
+    if (auto submitted = SubmitEstablish(); !submitted) [[unlikely]] {
+        return submitted;
+    }
+
+    // One event, and only if one is already there: a channel has parked on the fd,
+    // so there is nothing for this thread to wait for.
+    auto event = WaitCmEvent(event_channel_, 0);
+    if (!event) {
+        if (event.error() == std::make_error_code(std::errc::timed_out)) {
+            return utility::unexpected(make_error_code(RdmaErrc::kNotReady));
+        }
+        return utility::unexpected(event.error());
+    }
+    const auto type = (*event)->event;
+    const auto description = DescribeCmEvent(*(*event));
+    ::rdma_ack_cm_event(*event);
+    if (type == RDMA_CM_EVENT_ESTABLISHED) {
+        established_ = true;
+        return {};
+    }
+    if (type == RDMA_CM_EVENT_REJECTED || type == RDMA_CM_EVENT_UNREACHABLE ||
+        type == RDMA_CM_EVENT_CONNECT_ERROR || type == RDMA_CM_EVENT_ADDR_ERROR ||
+        type == RDMA_CM_EVENT_ROUTE_ERROR || type == RDMA_CM_EVENT_DEVICE_REMOVAL) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
+    }
+    return utility::unexpected(make_error_code(RdmaErrc::kNotReady));
+}
+
+RdmaResult<void> RdmaConnector::BindTarget(const net::Address& peer) noexcept {
+    if (failed()) [[unlikely]] {
+        return utility::unexpected(error_);
+    }
+    if (passive_) [[unlikely]] {
+        // A passive end has no destination to reach: the kernel already resolved it
+        // when the request arrived, and the queue pair is built.
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
+    }
+    if (queue_pair_ != nullptr) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
+    }
+
     const auto take_event = [this](::rdma_cm_event_type wanted) noexcept -> RdmaResult<void> {
         auto event = WaitCmEvent(event_channel_, 2000);
         if (!event) {
@@ -664,48 +753,65 @@ RdmaResult<void> RdmaConnector::Connect(net::Address peer) noexcept {
         [[unlikely]] {
         return utility::unexpected(Failing("Failed to resolve the rdma address"));
     }
-    if (auto resolved = take_event(RDMA_CM_EVENT_ADDR_RESOLVED); !resolved) [[unlikely]]
-    {
+    if (auto resolved = take_event(RDMA_CM_EVENT_ADDR_RESOLVED); !resolved) [[unlikely]] {
         return utility::unexpected(resolved.error());
     }
 
     // The address decided which device this connection runs on, so this is the
-    // first point the manager can be checked against it: a connection built with
+    // first point the resource can be checked against it: a connection built with
     // another device's regions and keys would fail every completion.
-    if (!resources_->Serves(*communication_id_)) [[unlikely]] {
+    if (!resource_->Serves(*communication_id_)) [[unlikely]] {
         return utility::unexpected(make_error_code(RdmaErrc::kDeviceMismatch));
     }
 
     if (::rdma_resolve_route(communication_id_, 2000) != 0) [[unlikely]] {
         return utility::unexpected(Failing("Failed to resolve the rdma route"));
     }
-    if (auto resolved = take_event(RDMA_CM_EVENT_ROUTE_RESOLVED); !resolved) [[unlikely]]
-    {
+    if (auto resolved = take_event(RDMA_CM_EVENT_ROUTE_RESOLVED); !resolved) [[unlikely]] {
         return utility::unexpected(resolved.error());
     }
 
     // The route is known, so the device is too: this is the earliest point the queue
-    // pair can be built against it. A failure here leaves the object holding the id
-    // and the channel, which its destructor gives back.
+    // pair can be built against it. What is left is the handshake, which is the
+    // caller's to start once its receives are posted.
     try {
         BuildQueuePair();
-    } catch (const std::exception& error) {
+    } catch (const std::exception&) {
         return utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
     }
-
-    ::rdma_conn_param param{};
-    param.responder_resources = 1;
-    param.initiator_depth = 1;
-    param.retry_count = 7;
-    param.rnr_retry_count = 7;  // stall rather than fail when receives run dry
-    if (::rdma_connect(communication_id_, &param) != 0) [[unlikely]] {
-        return utility::unexpected(Failing("Failed to connect the rdma connection"));
-    }
-    if (auto established = WaitForEstablish(); !established) [[unlikely]]
-    {
-        return utility::unexpected(established.error());
-    }
     return {};
+}
+
+RdmaResult<void> RdmaConnector::Establish() noexcept {
+    if (failed()) [[unlikely]] {
+        return utility::unexpected(error_);
+    }
+    if (established_) {
+        return {};
+    }
+    // An active end has nowhere to connect to until BindTarget has resolved the
+    // destination and built the queue pair.
+    if (!passive_ && queue_pair_ == nullptr) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kNoTarget));
+    }
+    if (queue_pair_ == nullptr) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidState));
+    }
+    // Non-blocking: submit and take at most one event, so the caller keeps control.
+    if (non_blocking_) {
+        return AdvanceEstablish();
+    }
+    if (auto submitted = SubmitEstablish(); !submitted) [[unlikely]] {
+        return submitted;
+    }
+    return WaitForEstablish();
+}
+
+RdmaResult<void> RdmaConnector::Connect(const net::Address& peer) noexcept {
+    if (auto targeted = BindTarget(peer); !targeted) [[unlikely]] {
+        return utility::unexpected(targeted.error());
+    }
+    return Establish();
 }
 }  // namespace nbio::net
 

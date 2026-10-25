@@ -23,7 +23,7 @@ if(NBIO_ENABLE_RDMA)
     target_sources(
         nbio
         PRIVATE
-        rdma_resource_manager.cpp
+        rdma_resource.cpp
         rdma_connector.cpp
         rdma_listener.cpp
         rdma_listen_channel.cpp

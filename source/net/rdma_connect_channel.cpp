@@ -5,27 +5,41 @@
 
 namespace nbio::net {
 namespace detail {
-class RdmaConnectAwaiter {
+/**
+ * @brief The coroutine side of @ref RdmaConnectChannel::Establish.
+ *
+ * @details One non-blocking step first, so an already-established connection does
+ * not suspend at all; then the coroutine parks and the multiplexer wakes it when
+ * the event fd says the handshake has moved.
+ */
+class RdmaEstablishAwaiter {
    public:
-    RdmaConnectAwaiter(RdmaConnectChannel& channel, nbio::net::Address peer)
-        : channel_(channel), peer_(std::move(peer)) {}
+    explicit RdmaEstablishAwaiter(RdmaConnectChannel& channel) : channel_(channel) {}
 
-    bool await_ready() const noexcept { return false; }
+    bool await_ready() const noexcept { return channel_.connector().is_established(); }
 
     template <typename PromiseType>
-    bool await_suspend(std::coroutine_handle<PromiseType>) {
-        channel_.job().error.clear();
+    bool await_suspend(std::coroutine_handle<PromiseType> handle) {
+        auto& job = channel_.job();
+        job.error.clear();
 
-        if (auto connected = channel_.connector().Connect(peer_); connected) {
-        } else {
-            channel_.job().error = connected.error();
+        auto step = channel_.Advance();
+        if (step) [[likely]] {
+            return false;
         }
-        return false;
+        if (step.error() != make_error_code(RdmaErrc::kNotReady)) [[unlikely]] {
+            job.error = step.error();
+            return false;
+        }
+
+        channel_.Park(nbio::async::Coroutine::FromHandle(handle));
+        channel_.Arm();
+        return true;
     }
 
-    RdmaResult<void> await_resume() {
+    RdmaResult<void> await_resume() const {
         auto& job = channel_.job();
-        if (job.error) {
+        if (job.error) [[unlikely]] {
             return nbio::utility::unexpected(std::exchange(job.error, {}));
         }
         return {};
@@ -33,10 +47,8 @@ class RdmaConnectAwaiter {
 
    private:
     RdmaConnectChannel& channel_;
-    nbio::net::Address peer_;
 };
 }  // namespace detail
-
 RdmaConnectChannel::RdmaConnectChannel(nbio::net::RdmaConnector& connector, nbio::core::Multiplexer& multiplexer,
                                        nbio::async::Scheduler& scheduler)
     : nbio::core::Channel<RdmaConnectChannel>(nbio::core::ChannelType::kRdmaConnect,
@@ -44,15 +56,25 @@ RdmaConnectChannel::RdmaConnectChannel(nbio::net::RdmaConnector& connector, nbio
                                               multiplexer, scheduler),
       connector_(connector) {
     // What there is to watch is the CM channel the connection was created with: the
-    // handshake it is about to run reports there. The connect itself is made
-    // synchronously in the awaiter, which never suspends.
+    // handshake it is about to run reports there. No wait is made here; Establish
+    // parks on this fd and takes one step per wake.
 }
 
 RdmaConnectChannel::~RdmaConnectChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
-nbio::async::Task<RdmaResult<void>> RdmaConnectChannel::Connect(nbio::net::Address peer) {
-    co_return co_await detail::RdmaConnectAwaiter{*this, std::move(peer)};
+RdmaResult<void> RdmaConnectChannel::BindSource(const nbio::net::Address& local) noexcept {
+    return connector_.BindSource(local);
 }
+
+RdmaResult<void> RdmaConnectChannel::BindTarget(const nbio::net::Address& peer) noexcept {
+    return connector_.BindTarget(peer);
+}
+
+nbio::async::Task<RdmaResult<void>> RdmaConnectChannel::Establish() {
+    co_return co_await detail::RdmaEstablishAwaiter{*this};
+}
+
+RdmaResult<void> RdmaConnectChannel::Advance() noexcept { return connector_.AdvanceEstablish(); }
 
 RdmaConnectChannel::Payload& RdmaConnectChannel::Submit() { return payload_; }
 
@@ -62,6 +84,18 @@ void RdmaConnectChannel::Complete() {
 
     if (!waiter_) [[unlikely]] {
         return;
+    }
+
+    auto step = connector_.AdvanceEstablish();
+    if (step) {
+        job().error.clear();
+    } else if (step.error() == make_error_code(RdmaErrc::kNotReady)) {
+        // The event was about the connection but not its outcome: arm again and
+        // keep the waiter parked.
+        Arm();
+        return;
+    } else {
+        job().error = step.error();
     }
 
     auto waiter = std::exchange(waiter_, {});

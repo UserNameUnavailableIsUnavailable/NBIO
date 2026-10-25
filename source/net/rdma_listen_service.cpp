@@ -4,7 +4,7 @@
 #include <utility>
 
 namespace nbio::net {
-RdmaListenService::RdmaListenService(RdmaResourceManager& resources, const Address& address, int backlog)
+RdmaListenService::RdmaListenService(RdmaResource& resources, const Address& address, int backlog)
     : listener_(resources),
       channel_(listener_, nbio::runtime::Daemon::multiplexer(), nbio::runtime::Daemon::scheduler()) {
     if (auto reused = listener_.ReuseAddress(true); !reused) [[unlikely]] {
@@ -16,7 +16,7 @@ RdmaListenService::RdmaListenService(RdmaResourceManager& resources, const Addre
 }
 
 nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> RdmaListenService::Accept() {
-    auto accepted = co_await channel_.accept();
+    auto accepted = co_await channel_.Accept();
     if (!accepted) [[unlikely]] {
         co_return utility::unexpected(accepted.error());
     }

@@ -8,18 +8,19 @@
 
 namespace nbio::net {
 namespace {
-nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> ConnectOn(RdmaResourceManager& resources,
+nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> ConnectOn(RdmaResource& resources,
                                                                              const Address* local,
                                                                              const Address& peer) {
     RdmaConnector connector{resources};
-    RdmaConnectChannel channel{connector, nbio::runtime::Daemon::multiplexer(), nbio::runtime::Daemon::scheduler()};
     if (local != nullptr) {
-        if (auto bound = connector.Bind(*local); !bound) [[unlikely]] {
+        if (auto bound = connector.BindSource(*local); !bound) [[unlikely]] {
             co_return utility::unexpected(bound.error());
         }
     }
-    if (auto connected = co_await channel.Connect(peer); !connected) [[unlikely]] {
-        co_return utility::unexpected(connected.error());
+    // Targeting builds the queue pair, so the caller can post receives before the
+    // session is established.
+    if (auto targeted = connector.BindTarget(peer); !targeted) [[unlikely]] {
+        co_return utility::unexpected(targeted.error());
     }
     try {
         co_return std::make_shared<RdmaSessionService>(std::move(connector), nbio::runtime::Daemon::multiplexer(),

@@ -12,9 +12,12 @@
 #include <span>
 #include <system_error>
 
+namespace nbio::fs {
+    class File;
+};
+
 namespace nbio::net {
 class SendAwaiter;
-
 class TcpSendChannel final : public nbio::core::Channel<TcpSendChannel> {
    public:
     using Payload = detail::MessagePayload<TcpSendChannel>;
@@ -24,6 +27,7 @@ class TcpSendChannel final : public nbio::core::Channel<TcpSendChannel> {
     ~TcpSendChannel() noexcept;
 
     nbio::async::Task<utility::expected<std::size_t, std::error_code>> Send(std::span<const char> buffer);
+    nbio::async::Task<utility::expected<std::size_t, std::error_code>> Send(const fs::File& file);
 
     // The operation the backend performs lives in the payload; the backend fills
     // the transmissions and asks the channel to reap them.

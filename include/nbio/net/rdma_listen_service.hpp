@@ -8,7 +8,7 @@
 #include <nbio/net/address.hpp>
 #include <nbio/net/rdma_listen_channel.hpp>
 #include <nbio/net/rdma_listener.hpp>
-#include <nbio/net/rdma_resource_manager.hpp>
+#include <nbio/net/rdma_resource.hpp>
 #include <nbio/net/rdma_result.hpp>
 #include <nbio/net/rdma_session_service.hpp>
 #include <system_error>
@@ -16,7 +16,7 @@
 namespace nbio::net {
 class RdmaListenService final {
    public:
-    RdmaListenService(RdmaResourceManager& resources, const Address& address, int backlog = 4096);
+    RdmaListenService(RdmaResource& resources, const Address& address, int backlog = 4096);
 
     RdmaListenService(const RdmaListenService&) = delete;
     RdmaListenService& operator=(const RdmaListenService&) = delete;

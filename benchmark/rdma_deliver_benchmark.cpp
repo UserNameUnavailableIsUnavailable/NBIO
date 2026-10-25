@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <nbio/async.hpp>
@@ -122,6 +123,12 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
     }
 
     auto service = std::make_shared<nbio::net::RdmaDeliverService>(*admitted, layout);
+    // The service posts every receive as it is built; only now may the peer send.
+    if (auto up = co_await (*admitted)->Establish(); !up) [[unlikely]]
+    {
+        outcome.failure = "establish failed: " + up.error().message();
+        co_return;
+    }
     if (auto ready = co_await service->handshake(); !ready) [[unlikely]]
     {
         outcome.failure = "handshake failed: " + ready.error();
@@ -198,6 +205,12 @@ nbio::async::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector
     }
 
     auto service = std::make_shared<nbio::net::RdmaDeliverService>(*connected, layout);
+    // The service posts every receive as it is built; only now may the peer send.
+    if (auto up = co_await (*connected)->Establish(); !up) [[unlikely]]
+    {
+        outcome.failure = "establish failed: " + up.error().message();
+        co_return;
+    }
     if (auto ready = co_await service->handshake(); !ready) [[unlikely]]
     {
         outcome.failure = "handshake failed: " + ready.error();
@@ -311,15 +324,24 @@ int main(int argc, char* argv[]) {
         return application.exit(error);
     }
 
-    nbio::net::RdmaResourceManager resources(device);
-    const auto receive_chunk = resources.receive_memory().chunk_size();
-    if (receive_chunk == 0) [[unlikely]] {
-        std::printf("receive chunk size is zero\n");
+    // The caller owns the two regions, so the benchmark allocates them: one block of
+    // kChunkCount packets each way, page aligned because that is what a registration
+    // pins.
+    const auto page = nbio::net::RdmaResource::page_size();
+    constexpr std::size_t kChunkSize = 4096;
+    constexpr std::size_t kChunkCount = 128;
+    const std::size_t region_bytes = kChunkSize * kChunkCount;
+    std::unique_ptr<char, decltype(&std::free)> send_arena{static_cast<char*>(std::aligned_alloc(page, region_bytes)),
+                                                           &std::free};
+    std::unique_ptr<char, decltype(&std::free)> receive_arena{
+        static_cast<char*>(std::aligned_alloc(page, region_bytes)), &std::free};
+    if (!send_arena || !receive_arena) [[unlikely]] {
+        std::printf("cannot allocate the rdma regions\n");
         return 1;
     }
+    nbio::net::RdmaResource resources{device, {send_arena.get(), region_bytes}, {receive_arena.get(), region_bytes}};
 
-    const nbio::net::RdmaDeliverService::Layout layout{.chunk_size = receive_chunk,
-                                                       .chunk_count = nbio::net::RdmaConnector::kReceiveChunks};
+    const nbio::net::RdmaDeliverService::Layout layout{.chunk_size = kChunkSize, .chunk_count = kChunkCount};
     const auto default_message_bytes =
         std::min<std::size_t>(kPreferredDefaultMessageBytes, static_cast<std::size_t>(layout.payload_size()));
     if (message_bytes_option->count() == 0) {

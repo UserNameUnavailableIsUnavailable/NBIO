@@ -1,5 +1,6 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 #include <fcntl.h>
+#include <poll.h>
 #include <rdma/rdma_cma.h>
 
 #include <cerrno>
@@ -18,9 +19,18 @@ enum class CmEventStatus {
     kFailure,
 };
 
-// Looks for an event without waiting for one, so a channel that is being polled
-// can tell "nothing here yet" from "this went wrong".
-CmEventStatus PollCmEvent(::rdma_event_channel* channel, ::rdma_cm_event** event) noexcept {
+// Takes one event, waiting up to `timeout_ms` for one to exist. Polling first is
+// what lets a blocking fd be used by a caller that asked not to wait, and what
+// lets a channel drive the same fd through the multiplexer.
+CmEventStatus PollCmEvent(::rdma_event_channel* channel, int timeout_ms, ::rdma_cm_event** event) noexcept {
+    pollfd waiter{.fd = channel->fd, .events = POLLIN, .revents = 0};
+    const int ready = ::poll(&waiter, 1, timeout_ms);
+    if (ready == 0) {
+        return CmEventStatus::kNone;
+    }
+    if (ready < 0) {
+        return CmEventStatus::kFailure;
+    }
     if (::rdma_get_cm_event(channel, event) == 0) {
         return CmEventStatus::kEvent;
     }
@@ -31,7 +41,7 @@ CmEventStatus PollCmEvent(::rdma_event_channel* channel, ::rdma_cm_event** event
 }
 }  // namespace
 
-RdmaListener::RdmaListener(RdmaResourceManager& resources) : resources_(&resources) {
+RdmaListener::RdmaListener(RdmaResource& resource) : resource_(&resource) {
     // The id is created on the event channel, so that has to exist first. Nothing
     // else is created here: what a connection is built from comes from the manager,
     // and it is only needed once one asks to be admitted.
@@ -54,7 +64,7 @@ RdmaResult<void> RdmaListener::Listen(net::Address address, int backlog) noexcep
     // The address is what picks the device, and the manager holds one: an address
     // that resolves somewhere else would give every connection it admits a queue
     // pair built with regions and keys that device does not know.
-    if (!resources_->Serves(*communication_id_)) [[unlikely]] {
+    if (!resource_->Serves(*communication_id_)) [[unlikely]] {
         return utility::unexpected(make_error_code(RdmaErrc::kDeviceMismatch));
     }
     if (::rdma_listen(communication_id_, backlog)) [[unlikely]] {
@@ -63,12 +73,15 @@ RdmaResult<void> RdmaListener::Listen(net::Address address, int backlog) noexcep
     return {};
 }
 
-RdmaResult<RdmaAcceptResult> RdmaListener::Accept() noexcept {
+RdmaResult<RdmaConnector> RdmaListener::Accept() noexcept {
+    // A blocking listener waits for the next event, like accept(2) on a blocking
+    // socket; a non-blocking one takes what is there and says so if nothing is.
+    const int timeout_ms = non_blocking_ ? 0 : -1;
     while (true) {
         ::rdma_cm_event* event{nullptr};
-        switch (PollCmEvent(event_channel_, &event)) {
+        switch (PollCmEvent(event_channel_, timeout_ms, &event)) {
             case CmEventStatus::kNone:
-                return RdmaAcceptResult{};
+                return utility::unexpected(make_error_code(RdmaErrc::kNotReady));
             case CmEventStatus::kFailure:
                 return utility::unexpected(Failing());
             case CmEventStatus::kEvent:
@@ -85,7 +98,7 @@ RdmaResult<RdmaAcceptResult> RdmaListener::Accept() noexcept {
         }
 
         auto* cm_id = event->id;  // the kernel makes one id per connection
-        if (!resources_->Serves(*cm_id)) [[unlikely]] {
+        if (!resource_->Serves(*cm_id)) [[unlikely]] {
             ::rdma_reject(cm_id, nullptr, 0);
             ::rdma_ack_cm_event(event);
             return utility::unexpected(make_error_code(RdmaErrc::kDeviceMismatch));
@@ -112,20 +125,11 @@ RdmaResult<RdmaAcceptResult> RdmaListener::Accept() noexcept {
         }
 
         try {
-            RdmaConnector connector(cm_id, channel, *resources_);
-            ::rdma_conn_param param{};
-            param.responder_resources = 1;
-            param.initiator_depth = 1;
-            param.retry_count = 7;
-            param.rnr_retry_count = 7;  // stall rather than fail when receives run dry
-            if (::rdma_accept(cm_id, &param)) [[unlikely]] {
-                return utility::unexpected(Failing());
-            }
-            if (auto established = connector.WaitForEstablish(); !established) [[unlikely]]
-            {
-                return utility::unexpected(established.error());
-            }
-            return RdmaAcceptResult{.state = RdmaAcceptState::kAccepted, .connection = std::move(connector)};
+            // The queue pair is built and the id is the connection's, but nothing is
+            // accepted yet: the caller posts its receives first and then calls
+            // Establish(), which is what lets the peer send.
+            RdmaConnector connector(cm_id, channel, *resource_);
+            return RdmaConnector(std::move(connector));
         } catch (const std::exception& error) {
             // The connection never took either of them.
             ::rdma_reject(cm_id, nullptr, 0);
@@ -136,14 +140,6 @@ RdmaResult<RdmaAcceptResult> RdmaListener::Accept() noexcept {
     }
 }
 
-RdmaResult<void> RdmaListener::NonBlocking(bool toggle) noexcept {
-    const int flags = ::fcntl(event_channel_->fd, F_GETFL, 0);
-    if (flags < 0 || ::fcntl(event_channel_->fd, F_SETFL, toggle ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK)) < 0)
-        [[unlikely]] {
-        return utility::unexpected(Failing());
-    }
-    return {};
-}
 RdmaResult<void> RdmaListener::ReuseAddress(bool enabled) noexcept {
     int reuse = enabled ? 1 : 0;
     auto ret = ::rdma_set_option(communication_id_, RDMA_OPTION_ID, RDMA_OPTION_ID_REUSEADDR, &reuse, sizeof(reuse));

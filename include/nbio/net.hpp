@@ -2,19 +2,28 @@
 
 #include <nbio/net/address.hpp>
 #include <nbio/net/payload.hpp>
-#include <nbio/net/rdma_listen_channel.hpp>
-#include <nbio/net/rdma_listen_service.hpp>
-#include <nbio/net/rdma_listener.hpp>
-#include <nbio/net/rdma_connect_channel.hpp>
+
+// RDMA, in two layers. The services are the interface to build against: every wait
+// they hand back is a Task, and every blocking step is a park on the multiplexer.
 #include <nbio/net/rdma_connect_service.hpp>
-#include <nbio/net/rdma_connector.hpp>
 #include <nbio/net/rdma_deliver_service.hpp>
 #include <nbio/net/rdma_header.hpp>
-#include <nbio/net/rdma_receive_channel.hpp>
-#include <nbio/net/rdma_resource_manager.hpp>
+#include <nbio/net/rdma_listen_service.hpp>
 #include <nbio/net/rdma_result.hpp>
-#include <nbio/net/rdma_send_channel.hpp>
 #include <nbio/net/rdma_session_service.hpp>
+
+// The queue pair and the regions under them, the channel adapters that attach them
+// to the multiplexer, and -- last -- the primitives, which are infrastructure: they
+// wait with a local poll(2) and are exposed only for callers that want direct
+// control. See docs/rdma.md.
+#include <nbio/net/rdma_connect_channel.hpp>
+#include <nbio/net/rdma_connector.hpp>
+#include <nbio/net/rdma_listen_channel.hpp>
+#include <nbio/net/rdma_listener.hpp>
+#include <nbio/net/rdma_receive_channel.hpp>
+#include <nbio/net/rdma_resource.hpp>
+#include <nbio/net/rdma_send_channel.hpp>
+
 #include <nbio/net/result.hpp>
 #include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/tcp_listen_service.hpp>

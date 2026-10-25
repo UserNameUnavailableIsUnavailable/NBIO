@@ -1,72 +1,69 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
+
 #include <cassert>
-#include <deque>
 #include <nbio/async/coroutine.hpp>
 #include <nbio/net/rdma_send_channel.hpp>
 #include <utility>
 
 namespace nbio::net {
 namespace detail {
-// Waits for send completions rather than for one particular send: the caller
-// posts several chunks at once, so what it has to know is how many of them the
-// device has finished with -- the completions are what hand the chunks back.
-class RdmaSendPollAwaiter {
+/**
+ * @brief The coroutine side of @ref RdmaSendChannel::Wait.
+ *
+ * @details Asks before it parks: a completion that has already been reaped must
+ * not suspend at all, and a sequence number that cannot become ready must answer
+ * at once rather than leave the caller parked for something that will never come.
+ */
+class RdmaSendWaitAwaiter {
    public:
-    RdmaSendPollAwaiter(RdmaSendChannel& channel, std::size_t count) : channel_(channel) {
-        const std::size_t outstanding = channel_.outstanding();
-        // count == 0 means "all of them", so the target is nothing still in
-        // flight when the wait began.
-        target_ = count == 0 ? 0 : (outstanding > count ? outstanding - count : 0);
-        before_ = channel_.completed();
-    }
+    RdmaSendWaitAwaiter(RdmaSendChannel& channel, RdmaSeq seq) : channel_(channel), seq_(seq) {}
 
-    bool await_ready() const noexcept {
-        if (channel_.outstanding() <= target_) {
-            // Nothing to wait for, so nothing to report either: a failure left
-            // over from an earlier poll must not be read as this poll's answer.
-            channel_.job().error.clear();
-            return true;
-        }
-        return false;
-    }
+    bool await_ready() const noexcept { return false; }
 
     template <typename PromiseType>
     bool await_suspend(std::coroutine_handle<PromiseType> handle) {
-        // Reap what has already completed before Parking. The completion channel
-        // is shared with the receive half, so a completion can land without this
-        // channel's event ever reaching the multiplexer.
-        if (auto reaped = channel_.connection().PollSend(0); reaped) [[likely]]
-        {
-            channel_.completed() += *reaped;
-        } else {
-            // The stream will not complete anything again. Answering now, rather
-            // than Parking, is what keeps a waiter from being Parked for good.
-            channel_.job().error = reaped.error();
+        auto& job = channel_.job();
+        job = RdmaSendChannel::Pending{.seq = seq_};
+
+        if (auto fetched = channel_.connection().FetchSend(seq_); fetched) [[likely]] {
+            job.result = *fetched;
             return false;
-        }
-        if (channel_.outstanding() <= target_) {
+        } else if (fetched.error() != make_error_code(RdmaErrc::kNotReady)) {
+            job.error = fetched.error();
             return false;
         }
 
-        channel_.job() = {.target = target_, .completions = 0, .error = {}};
+        // One non-blocking reap, then ask again: the completion may have arrived
+        // without anyone having polled the fd yet.
+        if (auto waited = channel_.connection().WaitSend(seq_, 0); !waited) [[unlikely]] {
+            job.error = waited.error();
+            return false;
+        }
+        if (auto fetched = channel_.connection().FetchSend(seq_); fetched) [[likely]] {
+            job.result = *fetched;
+            return false;
+        }
+
         channel_.Park(nbio::async::Coroutine::FromHandle(handle));
         channel_.Arm();
         return true;
     }
 
-    RdmaResult<std::size_t> await_resume() const {
+    RdmaResult<RdmaSendResult> await_resume() const {
         auto& job = channel_.job();
         if (job.error) [[unlikely]] {
-            // Consumed, so that a later poll on the same channel starts clean.
+            // Consumed, so that a later pull on the same channel starts clean.
             return nbio::utility::unexpected(std::exchange(job.error, {}));
         }
-        return channel_.completed() - before_;
+        // A wait consumes: the result is handed out once, and the slot is released
+        // so that the ring can advance.
+        channel_.connection().DropSend(job.result.seq);
+        return job.result;
     }
 
    private:
     RdmaSendChannel& channel_;
-    std::size_t target_{0};
-    std::size_t before_{0};
+    RdmaSeq seq_;
 };
 }  // namespace detail
 
@@ -76,13 +73,15 @@ RdmaSendChannel::RdmaSendChannel(nbio::net::RdmaConnector& connection, nbio::cor
                                            static_cast<std::uintptr_t>(connection.completion_channel_handle()),
                                            multiplexer, scheduler),
       connection_(connection) {
-    // Registered on the first arm(): nothing to watch until a poll is Parked.
+    // Registered on the first arm(): nothing to watch until a pull is parked.
 }
 
 RdmaSendChannel::~RdmaSendChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
-nbio::async::Task<RdmaResult<std::size_t>> RdmaSendChannel::Poll(std::size_t count) {
-    co_return co_await detail::RdmaSendPollAwaiter{*this, count};
+RdmaResult<RdmaSeq> RdmaSendChannel::Post(std::span<const char> buffer) noexcept { return connection_.PostSend(buffer); }
+
+nbio::async::Task<RdmaResult<RdmaSendResult>> RdmaSendChannel::Wait(RdmaSeq seq) {
+    co_return co_await detail::RdmaSendWaitAwaiter{*this, seq};
 }
 
 RdmaSendChannel::Payload& RdmaSendChannel::Submit() { return payload_; }
@@ -92,20 +91,26 @@ void RdmaSendChannel::Complete() {
     payload.ReleasePoll();
 
     if (!waiter_) [[unlikely]] {
-        // Nothing is waiting, so nothing may be reaped: a completion taken here
-        // would have no poll to belong to.
+        // Nothing is waiting, so nothing may be reaped on its behalf: a completion
+        // taken here would have no pull to belong to.
         return;
     }
 
-    if (auto reaped = connection_.PollSend(0); reaped) [[likely]]
-    {
-        completed_ += *reaped;
-        if (connection_.outstanding_sends() > job().target && !connection_.is_peer_closed() && !connection_.failed()) {
-            Arm();
-            return;
+    auto& job = job_;
+    auto waited = connection_.WaitSend(job.seq, 0);
+    if (!waited) [[unlikely]] {
+        job.error = waited.error();
+    } else if (*waited >= job.seq) {
+        if (auto fetched = connection_.FetchSend(job.seq); fetched) [[likely]] {
+            job.result = *fetched;
+        } else {
+            job.error = fetched.error();
         }
     } else {
-        job().error = reaped.error();
+        // The event was not for this sequence number after all: arm again and keep
+        // the puller parked.
+        Arm();
+        return;
     }
 
     auto waiter = std::exchange(waiter_, {});

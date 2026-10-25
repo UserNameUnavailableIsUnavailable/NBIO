@@ -4,8 +4,8 @@
 #include <array>
 #include <cstring>
 #include <nbio/async.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/net/rdma_deliver_service.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/utility/byte.hpp>
 #include <stdexcept>
 #include <utility>
@@ -46,41 +46,88 @@ bool DecodeLayout(std::span<const char> bytes, RdmaDeliverService::Layout& layou
     return layout.payload_size() > 0 && layout.chunk_count > 0;
 }
 
-// The header, read off the front of a chunk. The packet is the chunk: what the caller
-// is handed later is what comes after this.
-const nbio::net::RdmaHeader& AsPacket(std::span<char> chunk) noexcept {
-    return *reinterpret_cast<const nbio::net::RdmaHeader*>(chunk.data());
-}
-
-// The chunk a payload came in, which is the only way back to it: the payload was cut
-// from it and nothing else records where the header started.
-std::span<char> ChunkOf(std::span<char> payload, const RdmaDeliverService::Layout& layout) noexcept {
-    return std::span<char>(payload.data() - sizeof(nbio::net::RdmaHeader), static_cast<std::size_t>(layout.chunk_size));
+// The header, read off the front of a packet.
+const nbio::net::RdmaHeader& AsPacket(std::span<char> packet) noexcept {
+    return *reinterpret_cast<const nbio::net::RdmaHeader*>(packet.data());
 }
 }  // namespace
 
 RdmaDeliverService::RdmaDeliverService(std::shared_ptr<RdmaSessionService> session, Layout layout)
     : session_(std::move(session)), mine_(layout) {
-    if (session_ == nullptr) {
+    if (session_ == nullptr) [[unlikely]] {
         throw std::invalid_argument("an rdma deliver service needs a session");
     }
     if (mine_.payload_size() == 0 || mine_.chunk_count == 0) [[unlikely]] {
-        throw std::invalid_argument("an rdma deliver service needs chunks that hold a packet and a payload");
+        throw std::invalid_argument("an rdma deliver service needs slots that hold a packet and a payload");
     }
-    // What the peer may have in flight is what this end has actually posted receives for,
-    // and that is the connection's own depth rather than the pool's size: a pool of
-    // thousands says nothing about how many of its chunks the device has been handed. A
-    // window wider than the posted receives is one the peer will fill and then fail on,
-    // with the queue pair torn down for RNR_RETRY_EXC_ERR -- so it is refused here rather
-    // than discovered there.
-    if (mine_.chunk_count > nbio::net::RdmaConnector::kReceiveChunks) [[unlikely]] {
+    // What the peer may have in flight is what this end has actually posted receives
+    // for, and that is the connection's own depth rather than the region's size: a
+    // region of thousands of slots says nothing about how many the device has been
+    // handed. A window wider than the posted receives is one the peer fills and then
+    // fails on, with the queue pair torn down for RNR_RETRY_EXC_ERR -- so it is
+    // refused here rather than discovered there.
+    const std::uint64_t receive_depth = session_->connection().options().receive_queue_depth;
+    if (mine_.chunk_count > receive_depth) [[unlikely]] {
         throw std::invalid_argument("the layout offers " + std::to_string(mine_.chunk_count) +
-                                    " chunks where the connection posts receives for only " +
-                                    std::to_string(nbio::net::RdmaConnector::kReceiveChunks));
+                                    " slots where the connection posts receives for only " +
+                                    std::to_string(receive_depth));
+    }
+
+    // The service carves the regions itself: this is the one place a slot policy
+    // survives, and it is a policy the caller handed the memory for.
+    const std::span<char> receive_region = session_->resource().receive_memory_region();
+    const std::span<char> send_region = session_->resource().send_memory();
+    const auto chunk_size = static_cast<std::size_t>(mine_.chunk_size);
+    if (receive_region.size() / chunk_size < mine_.chunk_count) [[unlikely]] {
+        throw std::invalid_argument("the receive region does not hold the layout's slots");
+    }
+    if (send_region.size() < chunk_size) [[unlikely]] {
+        throw std::invalid_argument("the send region does not hold one packet");
+    }
+
+    receive_slots_.reserve(static_cast<std::size_t>(mine_.chunk_count));
+    for (std::uint64_t index = 0; index < mine_.chunk_count; ++index) {
+        receive_slots_.push_back(receive_region.subspan(static_cast<std::size_t>(index) * chunk_size, chunk_size));
+    }
+    const std::size_t send_slot_count =
+        std::min(send_region.size() / chunk_size, static_cast<std::size_t>(session_->connection().options().send_queue_depth));
+    send_slots_.reserve(send_slot_count);
+    for (std::size_t index = 0; index < send_slot_count; ++index) {
+        send_slots_.push_back(send_region.subspan(index * chunk_size, chunk_size));
+    }
+    send_slot_seq_.assign(send_slots_.size(), 0);
+
+    // Every receive is posted before the handshake can read anything: the peer's meta
+    // packet is a packet like any other, and it needs somewhere to land.
+    for (const auto slot : receive_slots_) {
+        auto pushed = session_->receive_channel().Post(slot);
+        if (!pushed) [[unlikely]] {
+            throw std::runtime_error("failed to post a receive: " + pushed.error().message());
+        }
+        if (next_receive_seq_ == 0) {
+            next_receive_seq_ = *pushed;
+        }
     }
 }
 
 RdmaDeliverService::~RdmaDeliverService() noexcept = default;
+
+nbio::utility::expected<void, std::string> RdmaDeliverService::Repost(std::span<char> chunk) {
+    auto pushed = session_->receive_channel().Post(chunk);
+    if (!pushed) [[unlikely]] {
+        return nbio::utility::unexpected(std::string{"failed to repost a receive: "} + pushed.error().message());
+    }
+    return nbio::utility::expected<void, std::string>{};
+}
+
+nbio::async::Task<nbio::utility::expected<RdmaReceiveResult, std::string>> RdmaDeliverService::PullPacket() {
+    auto pulled = co_await session_->receive_channel().Wait(next_receive_seq_);
+    if (!pulled) [[unlikely]] {
+        co_return nbio::utility::unexpected(pulled.error().message());
+    }
+    ++next_receive_seq_;
+    co_return *pulled;
+}
 
 nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService::handshake() {
     // Both ends say what they can take as soon as they are connected, so neither has to
@@ -88,8 +135,7 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
     // read here rather than by it.
     const auto mine = EncodeLayout(mine_);
     const auto open = nbio::net::RdmaPacketType::kMeta | nbio::net::RdmaPacketType::kAck;
-    if (auto sent = co_await SendPacket(std::span<const char>(mine.data(), mine.size()), open); !sent) [[unlikely]]
-    {
+    if (auto sent = co_await SendPacket(std::span<const char>(mine.data(), mine.size()), open); !sent) [[unlikely]] {
         co_return nbio::utility::unexpected(sent.error());
     }
 
@@ -103,15 +149,14 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
     if (!DecodeLayout(incoming->packet.subspan(sizeof(nbio::net::RdmaHeader)), peer_)) [[unlikely]] {
         co_return nbio::utility::unexpected(std::string{"the peer said it can take nothing"});
     }
-    // A meta packet carries no payload, so its chunk is finished with as soon as it has
+    // A meta packet carries no payload, so its slot is finished with as soon as it has
     // been read.
-    if (auto released = session_->Release(incoming->packet); !released) [[unlikely]]
-    {
-        co_return nbio::utility::unexpected(released.error().message());
+    if (auto released = Repost(incoming->chunk); !released) [[unlikely]] {
+        co_return nbio::utility::unexpected(released.error());
     }
     taken_ = 1;
     // The peer's meta was its first packet, so it is also the first thing this end has
-    // finished with: releasing it is what puts that chunk back, and the acknowledgement
+    // finished with: releasing it is what puts that slot back, and the acknowledgement
     // for it is already owed.
     released_ = 1;
     acknowledged_to_peer_ = 1;
@@ -120,9 +165,9 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
 }
 
 void RdmaDeliverService::Start() {
-    // The reader is the service's own, and it is the only thing that ever takes a chunk
-    // off the session: an ack arrives while a sender is waiting for room, so the two
-    // cannot be the same coroutine.
+    // The reader is the service's own, and it is the only thing that ever takes a
+    // payload off the session: an ack arrives while a sender is waiting for room, so
+    // the two cannot be the same coroutine.
     reader_ = nbio::async::Spawn(Read(shared_from_this()));
 }
 
@@ -130,15 +175,12 @@ nbio::async::Task<void> RdmaDeliverService::Read(std::shared_ptr<RdmaDeliverServ
     while (!self->ended_) {
         auto packet = co_await self->ReadPacket();
         if (!packet) [[unlikely]] {
-            // The link is over. Whichever coroutine is waiting is told, because nothing
-            // else will ever be: an ack can never arrive now.
             self->ended_ = true;
             self->room_.NotifyAll();
             self->ready_available_.NotifyAll();
             co_return;
         }
-        if (auto absorbed = co_await self->Absorb(std::move(*packet)); !absorbed) [[unlikely]]
-        {
+        if (auto absorbed = co_await self->Absorb(std::move(*packet)); !absorbed) [[unlikely]] {
             self->ended_ = true;
             self->room_.NotifyAll();
             self->ready_available_.NotifyAll();
@@ -148,16 +190,10 @@ nbio::async::Task<void> RdmaDeliverService::Read(std::shared_ptr<RdmaDeliverServ
 }
 
 void RdmaDeliverService::Stop() noexcept {
-    // Cancelling is what ends the reader, and cancelling is what it takes: the reader is
-    // Parked on the session's receive channel, and a packet to wake it with is exactly
-    // what is not coming. The scheduler never resumes a cancelled coroutine, and
-    // destroys its frame at the next iteration -- which is what lets go of the
-    // shared_ptr that frame holds to this service. That is why a service nobody stops is
-    // one nobody destroys, and why its reader keeps the thread's Run() from returning.
-    //
-    // It is the destroy-at-reclaim that makes this work, and not the token: the reader
-    // is Parked in a channel this service owns, so a frame that outlived reclamation
-    // would hold the service that holds the channel that holds the frame.
+    // Cancelling is what ends the reader: it is parked on the receive channel, and a
+    // packet to wake it with is exactly what is not coming. The scheduler never
+    // resumes a cancelled coroutine and destroys its frame at the next iteration,
+    // which is what lets go of the reference that frame holds to this service.
     ended_ = true;
     reader_.Cancel();
     room_.NotifyAll();
@@ -165,25 +201,26 @@ void RdmaDeliverService::Stop() noexcept {
 }
 
 nbio::async::Task<nbio::utility::expected<RdmaDeliverService::Incoming, std::string>> RdmaDeliverService::ReadPacket() {
-    auto incoming = co_await session_->Receive();
-    if (!incoming) [[unlikely]] {
-        co_return nbio::utility::unexpected(incoming.error().message());
-    }
-    if (incoming->state != RdmaReceiveState::kData) [[unlikely]] {
-        co_return nbio::utility::unexpected(std::string{"the connection is gone"});
+    auto pulled = co_await PullPacket();
+    if (!pulled) [[unlikely]] {
+        co_return nbio::utility::unexpected(pulled.error());
     }
 
-    const std::span<char> packet = incoming->data;
+    const std::span<char> chunk = pulled->buffer;
+    const std::span<char> packet = chunk.first(std::min<std::size_t>(pulled->bytes, chunk.size()));
     if (packet.size() < sizeof(nbio::net::RdmaHeader)) [[unlikely]] {
         // A completion shorter than a header is not a packet this protocol sent, and
         // guessing what it was is worse than stopping.
-        (void)session_->Release(packet);
+        (void)Repost(chunk);
         co_return nbio::utility::unexpected(std::string{"a packet arrived without a header"});
     }
 
     const auto& header = AsPacket(packet);
-    co_return Incoming{
-        .packet = packet, .sequence = header.sequence, .type = header.type, .acknowledge = header.acknowledge};
+    co_return Incoming{.packet = packet,
+                       .chunk = chunk,
+                       .sequence = header.sequence,
+                       .type = header.type,
+                       .acknowledge = header.acknowledge};
 }
 
 nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService::Absorb(Incoming packet) {
@@ -195,24 +232,23 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
     }
 
     if (!(packet.type & nbio::net::RdmaPacketType::kPayload)) {
-        // An ack carries nothing, so its chunk is finished with as soon as it has been
+        // An ack carries nothing, so its slot is finished with as soon as it has been
         // read. It is still a packet the peer sent and numbered, though, and its number
-        // is released like any other: a number that was never released would hold a slot
-        // in the peer's window for good, and a link that sends an ack every so often
-        // would slowly fill the window with packets that have nothing in them.
-        if (auto released = session_->Release(packet.packet); !released) [[unlikely]]
-        {
-            co_return nbio::utility::unexpected(released.error().message());
+        // is released like any other: a number that was never released would hold a
+        // slot in the peer's window for good.
+        if (auto released = Repost(packet.chunk); !released) [[unlikely]] {
+            co_return nbio::utility::unexpected(released.error());
         }
         released_ = std::max(released_, packet.sequence);
         co_return nbio::utility::expected<void, std::string>{};
     }
 
-    // A payload's chunk stays out of the pool until its payload is released, which is
+    // A payload's slot stays out of the ring until its payload is released, which is
     // what makes the acknowledgement mean "the buffer is back" rather than "the bytes
     // went past".
-    ready_.push_back(
-        Held{.payload = packet.packet.subspan(sizeof(nbio::net::RdmaHeader)), .sequence = packet.sequence});
+    ready_.push_back(Held{.payload = packet.packet.subspan(sizeof(nbio::net::RdmaHeader)),
+                          .chunk = packet.chunk,
+                          .sequence = packet.sequence});
     ready_available_.NotifyOne();
     co_return nbio::utility::expected<void, std::string>{};
 }
@@ -223,7 +259,7 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
     }
 
     // What one packet can carry is the smaller of the two ends' payload sizes: this end
-    // has to be able to fill a chunk, and the peer has to be able to receive what is in
+    // has to be able to fill a slot, and the peer has to be able to receive what is in
     // it. Both ends know both numbers, so both cut at the same width.
     const auto width = std::min(mine_.payload_size(), peer_.payload_size());
     std::size_t offset = 0;
@@ -231,8 +267,7 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
         const auto take = static_cast<std::size_t>(std::min<std::uint64_t>(width, payload.size() - offset));
         if (auto sent = co_await SendPacket(payload.subspan(offset, take),
                                             nbio::net::RdmaPacketType::kPayload | nbio::net::RdmaPacketType::kAck);
-            !sent) [[unlikely]]
-        {
+            !sent) [[unlikely]] {
             co_return nbio::utility::unexpected(sent.error());
         }
         offset += take;
@@ -242,34 +277,29 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
 
 nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService::SendPacket(
     std::span<const char> payload, nbio::net::RdmaPacketType type) {
-    if (auto room = co_await WaitForRoom(1); !room) [[unlikely]]
-    {
+    if (auto room = co_await WaitForRoom(1); !room) [[unlikely]] {
         co_return nbio::utility::unexpected(room.error());
     }
-
-    // A chunk to fill, waited for when every one of them is in flight: this is the
-    // sender's own limit, and a tighter one than the window when the pool is small.
-    std::span<char> chunk{};
-    while (chunk.empty()) {
-        auto acquired = session_->send_channel().Acquire();
-        if (!acquired) [[unlikely]] {
-            co_return nbio::utility::unexpected(acquired.error().message());
-        }
-        if (acquired->state == RdmaBufferState::kAvailable) {
-            chunk = acquired->buffer;
-            break;
-        }
-        const auto reaped = co_await session_->PollSend(1);
-        if (!reaped) [[unlikely]] {
-            co_return nbio::utility::unexpected(reaped.error().message());
-        }
-        if (*reaped == 0 && session_->send_channel().outstanding() != 0) [[unlikely]] {
-            co_return nbio::utility::unexpected(std::string{"the link stopped reporting completions"});
-        }
+    if (send_slots_.empty()) [[unlikely]] {
+        co_return nbio::utility::unexpected(std::string{"the send region holds no packet"});
     }
 
-    if (payload.size() + sizeof(nbio::net::RdmaHeader) > chunk.size()) [[unlikely]] {
-        co_return nbio::utility::unexpected(std::string{"a packet does not fit a chunk"});
+    // A slot is reused only once the packet that last used it has retired, which is
+    // the whole of the send lifetime rule. Waiting for that older sequence number also
+    // means every packet before it has retired, because completions are in posting
+    // order.
+    const std::size_t index = send_cursor_;
+    if (send_slot_seq_[index] != 0) {
+        auto retired = co_await session_->send_channel().Wait(send_slot_seq_[index]);
+        if (!retired) [[unlikely]] {
+            co_return nbio::utility::unexpected(retired.error().message());
+        }
+        send_slot_seq_[index] = 0;
+    }
+
+    const std::span<char> slot = send_slots_[index];
+    if (payload.size() + sizeof(nbio::net::RdmaHeader) > slot.size()) [[unlikely]] {
+        co_return nbio::utility::unexpected(std::string{"a packet does not fit a slot"});
     }
 
     // The header goes on here rather than at the caller's hands: what a caller writes is
@@ -278,17 +308,20 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
     header.sequence = ++sent_;
     header.acknowledge = released_;
     header.type = type;
-    std::memcpy(chunk.data(), &header, sizeof(header));
+    std::memcpy(slot.data(), &header, sizeof(header));
     if (!payload.empty()) {
-        std::memcpy(chunk.data() + sizeof(header), payload.data(), payload.size());
+        std::memcpy(slot.data() + sizeof(header), payload.data(), payload.size());
     }
     acknowledged_to_peer_ = std::max(acknowledged_to_peer_, header.acknowledge);
     room_.NotifyOne();
 
-    if (auto posted = session_->Send(chunk, sizeof(header) + payload.size()); !posted) [[unlikely]]
-    {
-        co_return nbio::utility::unexpected(posted.error().message());
+    const auto used = slot.first(sizeof(header) + payload.size());
+    auto pushed = session_->send_channel().Post(used);
+    if (!pushed) [[unlikely]] {
+        co_return nbio::utility::unexpected(pushed.error().message());
     }
+    send_slot_seq_[index] = *pushed;
+    send_cursor_ = (index + 1) % send_slots_.size();
     co_return nbio::utility::expected<void, std::string>{};
 }
 
@@ -307,11 +340,10 @@ nbio::async::Task<nbio::utility::expected<void, std::string>> RdmaDeliverService
     const Held held = ready_.front();
     ready_.pop_front();
 
-    // The chunk goes back first: it is what the peer is waiting for, and what the
+    // The slot goes back first: it is what the peer is waiting for, and what the
     // acknowledgement that follows is a claim about.
-    if (auto released = session_->Release(ChunkOf(held.payload, mine_)); !released) [[unlikely]]
-    {
-        co_return nbio::utility::unexpected(released.error().message());
+    if (auto released = Repost(held.chunk); !released) [[unlikely]] {
+        co_return nbio::utility::unexpected(released.error());
     }
     released_ = std::max(released_, held.sequence);
 
