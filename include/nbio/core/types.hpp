@@ -30,6 +30,7 @@ enum class ChannelType {
 #if defined(NBIO_ENABLE_RDMA)
     kRdmaAccept,
     kRdmaConnect,
+    kRdmaEstablish,
     kRdmaSend,
     kRdmaReceive,
 #endif

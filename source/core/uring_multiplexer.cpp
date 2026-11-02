@@ -22,8 +22,9 @@
 #include <type_traits>
 #include <variant>
 #if defined(NBIO_ENABLE_RDMA)
-#include <nbio/net/rdma_listen_channel.hpp>
 #include <nbio/net/rdma_connect_channel.hpp>
+#include <nbio/net/rdma_establish_channel.hpp>
+#include <nbio/net/rdma_listen_channel.hpp>
 #include <nbio/net/rdma_receive_channel.hpp>
 #include <nbio/net/rdma_send_channel.hpp>
 #endif
@@ -53,7 +54,7 @@ using ChannelVariant =
                  TimerChannel*, NotifierChannel*, SystemSignalChannel*, TcpConnectChannel*
 #if defined(NBIO_ENABLE_RDMA)
                  ,
-                 RdmaListenChannel*, RdmaConnectChannel*, RdmaSendChannel*, RdmaReceiveChannel*
+                 RdmaListenChannel*, RdmaConnectChannel*, RdmaSendChannel*, RdmaReceiveChannel*, RdmaEstablishChannel*
 #endif
                  >;
 
@@ -88,6 +89,8 @@ static ChannelVariant as_variant(ChannelBase* channel) {
             return static_cast<RdmaSendChannel*>(channel);
         case ChannelType::kRdmaReceive:
             return static_cast<RdmaReceiveChannel*>(channel);
+        case ChannelType::kRdmaEstablish:
+            return static_cast<RdmaEstablishChannel*>(channel);
 #endif
     }
     throw std::logic_error("URingMultiplexer::as_variant: unsupported channel type");
@@ -425,6 +428,9 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
         auto& payload = channel->Submit();
         return prepare_poll_sqe(ring, channel, payload);
     } else if constexpr (std::is_same_v<ChannelType, RdmaReceiveChannel>) {
+        auto& payload = channel->Submit();
+        return prepare_poll_sqe(ring, channel, payload);
+    } else if constexpr (std::is_same_v<ChannelType, RdmaEstablishChannel>) {
         auto& payload = channel->Submit();
         return prepare_poll_sqe(ring, channel, payload);
 #endif

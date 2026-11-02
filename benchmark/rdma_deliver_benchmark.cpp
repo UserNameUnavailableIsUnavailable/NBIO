@@ -102,14 +102,13 @@ void RunEngine(Body body, const std::string& multiplexer, Outcome& outcome) {
     }
 }
 
-nbio::async::Task<nbio::utility::expected<std::span<char>, std::string>> ReceiveOne(
-    nbio::net::RdmaDeliverService& service) {
+nbio::async::Task<nbio::net::RdmaResult<std::span<char>>> ReceiveOne(nbio::net::RdmaDeliverService& service) {
     auto incoming = co_await service.Receive();
     if (!incoming) [[unlikely]] {
         co_return nbio::utility::unexpected(incoming.error());
     }
     if (incoming->state == nbio::net::RdmaPayloadState::kEnded) [[unlikely]] {
-        co_return nbio::utility::unexpected(std::string{"the link ended"});
+        co_return nbio::utility::unexpected(make_error_code(nbio::net::RdmaErrc::kPeerClosed));
     }
     co_return incoming->payload;
 }
@@ -122,23 +121,24 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
         co_return;
     }
 
-    auto service = std::make_shared<nbio::net::RdmaDeliverService>(*admitted, layout);
+    auto session = std::make_shared<nbio::net::RdmaSessionService>(std::move(*admitted));
+    auto service = std::make_shared<nbio::net::RdmaDeliverService>(session, layout);
     // The service posts every receive as it is built; only now may the peer send.
-    if (auto up = co_await (*admitted)->Establish(); !up) [[unlikely]]
+    if (auto up = co_await session->Establish(); !up) [[unlikely]]
     {
         outcome.failure = "establish failed: " + up.error().message();
         co_return;
     }
     if (auto ready = co_await service->handshake(); !ready) [[unlikely]]
     {
-        outcome.failure = "handshake failed: " + ready.error();
+        outcome.failure = "handshake failed: " + ready.error().message();
         co_return;
     }
     service->Start();
 
     auto start_message = co_await ReceiveOne(*service);
     if (!start_message) [[unlikely]] {
-        outcome.failure = "start message receive failed: " + start_message.error();
+        outcome.failure = "start message receive failed: " + start_message.error().message();
         co_return;
     }
     Report start_report;
@@ -148,7 +148,7 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
     }
     if (auto released = co_await service->release(*start_message); !released) [[unlikely]]
     {
-        outcome.failure = "cannot release start message: " + released.error();
+        outcome.failure = "cannot release start message: " + released.error().message();
         co_return;
     }
 
@@ -160,7 +160,8 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
     for (std::size_t index = 0; index < messages; ++index) {
         auto payload = co_await ReceiveOne(*service);
         if (!payload) [[unlikely]] {
-            outcome.failure = "payload receive failed after " + std::to_string(index) + " messages: " + payload.error();
+            outcome.failure = "payload receive failed after " + std::to_string(index) + " messages: " +
+                              payload.error().message();
             co_return;
         }
         if ((*payload).size() != message_bytes) [[unlikely]] {
@@ -171,7 +172,7 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
         bytes += (*payload).size();
         if (auto released = co_await service->release(*payload); !released) [[unlikely]]
         {
-            outcome.failure = "cannot release payload: " + released.error();
+            outcome.failure = "cannot release payload: " + released.error().message();
             co_return;
         }
     }
@@ -180,7 +181,7 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
     if (auto posted = co_await service->Send(std::span<const char>(done_message.data(), done_message.size())); !posted)
         [[unlikely]]
     {
-        outcome.failure = "done message send failed: " + posted.error();
+        outcome.failure = "done message send failed: " + posted.error().message();
         co_return;
     }
 
@@ -196,24 +197,31 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
 }
 
 nbio::async::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector, const nbio::net::Address* source,
-                                        const nbio::net::Address& peer, nbio::net::RdmaDeliverService::Layout layout,
-                                        std::size_t message_bytes, std::size_t messages, Outcome& outcome) {
-    auto connected = source != nullptr ? co_await connector.Connect(*source, peer) : co_await connector.Connect(peer);
+                                        nbio::net::RdmaDeliverService::Layout layout, std::size_t message_bytes,
+                                        std::size_t messages, Outcome& outcome) {
+    if (source != nullptr) {
+        if (auto bound = connector.Bind(*source); !bound) [[unlikely]] {
+            outcome.failure = "bind source failed: " + bound.error().message();
+            co_return;
+        }
+    }
+    auto connected = co_await connector.Connect();
     if (!connected) [[unlikely]] {
         outcome.failure = "connect failed: " + connected.error().message();
         co_return;
     }
 
-    auto service = std::make_shared<nbio::net::RdmaDeliverService>(*connected, layout);
+    auto session = std::make_shared<nbio::net::RdmaSessionService>(std::move(*connected));
+    auto service = std::make_shared<nbio::net::RdmaDeliverService>(session, layout);
     // The service posts every receive as it is built; only now may the peer send.
-    if (auto up = co_await (*connected)->Establish(); !up) [[unlikely]]
+    if (auto up = co_await session->Establish(); !up) [[unlikely]]
     {
         outcome.failure = "establish failed: " + up.error().message();
         co_return;
     }
     if (auto ready = co_await service->handshake(); !ready) [[unlikely]]
     {
-        outcome.failure = "handshake failed: " + ready.error();
+        outcome.failure = "handshake failed: " + ready.error().message();
         co_return;
     }
     service->Start();
@@ -222,7 +230,7 @@ nbio::async::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector
     if (auto announced = co_await service->Send(std::span<const char>(start_message.data(), start_message.size()));
         !announced) [[unlikely]]
     {
-        outcome.failure = "start message send failed: " + announced.error();
+        outcome.failure = "start message send failed: " + announced.error().message();
         co_return;
     }
 
@@ -235,14 +243,15 @@ nbio::async::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector
     for (std::size_t index = 0; index < messages; ++index) {
         if (auto posted = co_await service->Send(payload); !posted) [[unlikely]]
         {
-            outcome.failure = "payload send failed after " + std::to_string(index) + " messages: " + posted.error();
+            outcome.failure = "payload send failed after " + std::to_string(index) + " messages: " +
+                              posted.error().message();
             co_return;
         }
     }
 
     auto done_message = co_await ReceiveOne(*service);
     if (!done_message) [[unlikely]] {
-        outcome.failure = "done message receive failed: " + done_message.error();
+        outcome.failure = "done message receive failed: " + done_message.error().message();
         co_return;
     }
     Report done_report;
@@ -252,7 +261,7 @@ nbio::async::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector
     }
     if (auto released = co_await service->release(*done_message); !released) [[unlikely]]
     {
-        outcome.failure = "cannot release done message: " + released.error();
+        outcome.failure = "cannot release done message: " + released.error().message();
         co_return;
     }
 
@@ -372,17 +381,25 @@ int main(int argc, char* argv[]) {
     if (mode == "server") {
         RunEngine(
             [&] {
-                nbio::net::RdmaListenService listener(resources, *peer);
+                nbio::net::RdmaListenService listener(resources);
+                if (auto bound = listener.Bind(*peer); !bound) {
+                    outcome.failure = "bind failed: " + bound.error().message();
+                    return;
+                }
+                if (auto listening = listener.Listen(); !listening) {
+                    outcome.failure = "listen failed: " + listening.error().message();
+                    return;
+                }
                 nbio::async::Run(ServerBenchmark(listener, layout, outcome));
             },
             multiplexer, outcome);
     } else {
         RunEngine(
             [&] {
-                nbio::net::RdmaConnectService connector(resources);
+                nbio::net::RdmaConnectService connector(resources, *peer);
                 if (local_ip.empty()) {
                     nbio::async::Run(
-                        ClientBenchmark(connector, nullptr, *peer, layout, message_bytes, messages, outcome));
+                        ClientBenchmark(connector, nullptr, layout, message_bytes, messages, outcome));
                 } else {
                     const auto source = nbio::net::Address::FromIPv4(local_ip, 0);
                     if (!source) {
@@ -390,7 +407,7 @@ int main(int argc, char* argv[]) {
                         return;
                     }
                     nbio::async::Run(
-                        ClientBenchmark(connector, &*source, *peer, layout, message_bytes, messages, outcome));
+                        ClientBenchmark(connector, &*source, layout, message_bytes, messages, outcome));
                 }
             },
             multiplexer, outcome);

@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.20)
 
 add_executable(
 	nbio_testing
-	buffer_testing.cpp
 	condition_testing.cpp
 	file_write_channel_testing.cpp
 	socket_channel_testing.cpp

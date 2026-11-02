@@ -23,8 +23,9 @@
 #include <utility>
 #include <variant>
 #if defined(NBIO_ENABLE_RDMA)
-#include <nbio/net/rdma_listen_channel.hpp>
 #include <nbio/net/rdma_connect_channel.hpp>
+#include <nbio/net/rdma_establish_channel.hpp>
+#include <nbio/net/rdma_listen_channel.hpp>
 #include <nbio/net/rdma_receive_channel.hpp>
 #include <nbio/net/rdma_send_channel.hpp>
 #endif  // defined(NBIO_ENABLE_RDMA)
@@ -49,7 +50,7 @@ using ChannelVariant =
                  TimerChannel*, NotifierChannel*, SystemSignalChannel*, TcpConnectChannel*
 #if defined(NBIO_ENABLE_RDMA)
                  ,
-                 RdmaListenChannel*, RdmaConnectChannel*, RdmaSendChannel*, RdmaReceiveChannel*
+                 RdmaListenChannel*, RdmaConnectChannel*, RdmaSendChannel*, RdmaReceiveChannel*, RdmaEstablishChannel*
 #endif
                  >;
 
@@ -82,6 +83,8 @@ static ChannelVariant as_variant(ChannelBase* channel) {
             return static_cast<RdmaSendChannel*>(channel);
         case ChannelType::kRdmaReceive:
             return static_cast<RdmaReceiveChannel*>(channel);
+        case ChannelType::kRdmaEstablish:
+            return static_cast<RdmaEstablishChannel*>(channel);
 #endif
     }
     throw std::logic_error("EpollMultiplexer::as_variant: unsupported channel type");
@@ -141,6 +144,7 @@ static constexpr std::uint32_t native_flags_for(nbio::core::ChannelType type) {
 #if defined(NBIO_ENABLE_RDMA)
         case nbio::core::ChannelType::kRdmaAccept:
         case nbio::core::ChannelType::kRdmaConnect:
+        case nbio::core::ChannelType::kRdmaEstablish:
         case nbio::core::ChannelType::kRdmaSend:
         case nbio::core::ChannelType::kRdmaReceive:
 #endif

@@ -24,12 +24,14 @@ if(NBIO_ENABLE_RDMA)
         nbio
         PRIVATE
         rdma_resource.cpp
+        rdma_communication.cpp
         rdma_connector.cpp
         rdma_listener.cpp
         rdma_listen_channel.cpp
         rdma_listen_service.cpp
         rdma_connect_channel.cpp
         rdma_connect_service.cpp
+        rdma_establish_channel.cpp
         rdma_deliver_service.cpp
         rdma_receive_channel.cpp
         rdma_send_channel.cpp

@@ -1,38 +1,38 @@
 #pragma once
-
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
-#include <memory>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
-#include <nbio/net/address.hpp>
+#include <nbio/net/rdma_communication.hpp>
 #include <nbio/net/rdma_listen_channel.hpp>
 #include <nbio/net/rdma_listener.hpp>
 #include <nbio/net/rdma_resource.hpp>
-#include <nbio/net/rdma_result.hpp>
-#include <nbio/net/rdma_session_service.hpp>
-#include <system_error>
 
 namespace nbio::net {
-class RdmaListenService final {
+/**
+ * @brief The interface half of a listener: the two phases of setup, then one
+ *        coroutine that waits for a connection request and returns it prepared.
+ */
+class RdmaListenService {
    public:
-    RdmaListenService(RdmaResource& resources, const Address& address, int backlog = 4096);
+    explicit RdmaListenService(RdmaResource& resource);
 
     RdmaListenService(const RdmaListenService&) = delete;
     RdmaListenService& operator=(const RdmaListenService&) = delete;
     RdmaListenService(RdmaListenService&&) = delete;
     RdmaListenService& operator=(RdmaListenService&&) = delete;
+    ~RdmaListenService() noexcept;
 
-    ~RdmaListenService() noexcept = default;
+    RdmaResult<void> Bind(const net::Address& address) noexcept;
+    RdmaResult<void> Listen(int backlog = 4096) noexcept;
 
-    nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> Accept();
+    /** @brief Returns the prepared communication, not accepted -- the caller may still refuse. */
+    nbio::async::Task<RdmaResult<RdmaCommunication>> Accept();
 
     RdmaListener& listener() noexcept { return listener_; }
-    const RdmaListener& listener() const noexcept { return listener_; }
 
    private:
     RdmaListener listener_;
-    RdmaListenChannel channel_;
+    RdmaListenChannel listen_channel_;
 };
 }  // namespace nbio::net
 

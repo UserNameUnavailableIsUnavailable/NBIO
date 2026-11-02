@@ -9,7 +9,6 @@
 #include <nbio/core/channel.hpp>
 #include <nbio/core/types.hpp>
 #include <nbio/fs/file.hpp>
-#include <nbio/utility/buffer.hpp>
 #include <string>
 
 #if not defined(__linux__)

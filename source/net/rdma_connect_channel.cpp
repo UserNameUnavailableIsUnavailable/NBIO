@@ -1,30 +1,30 @@
-#include <cstdint>
+#if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
+
 #include <nbio/async/coroutine.hpp>
 #include <nbio/net/rdma_connect_channel.hpp>
 #include <utility>
 
 namespace nbio::net {
 namespace detail {
-/**
- * @brief The coroutine side of @ref RdmaConnectChannel::Establish.
- *
- * @details One non-blocking step first, so an already-established connection does
- * not suspend at all; then the coroutine parks and the multiplexer wakes it when
- * the event fd says the handshake has moved.
- */
-class RdmaEstablishAwaiter {
+class RdmaConnectAwaiter {
    public:
-    explicit RdmaEstablishAwaiter(RdmaConnectChannel& channel) : channel_(channel) {}
+    RdmaConnectAwaiter(RdmaConnectChannel& channel, const net::Address& target) : channel_(channel), target_(target) {}
 
-    bool await_ready() const noexcept { return channel_.connector().is_established(); }
+    bool await_ready() const noexcept { return false; }
 
     template <typename PromiseType>
     bool await_suspend(std::coroutine_handle<PromiseType> handle) {
         auto& job = channel_.job();
+        job.communication.reset();
         job.error.clear();
 
+        if (auto submitted = channel_.SubmitResolve(target_); !submitted) [[unlikely]] {
+            job.error = submitted.error();
+            return false;
+        }
         auto step = channel_.Advance();
         if (step) [[likely]] {
+            job.communication = std::move(*step);
             return false;
         }
         if (step.error() != make_error_code(RdmaErrc::kNotReady)) [[unlikely]] {
@@ -37,68 +37,73 @@ class RdmaEstablishAwaiter {
         return true;
     }
 
-    RdmaResult<void> await_resume() const {
+    RdmaResult<RdmaCommunication> await_resume() const {
         auto& job = channel_.job();
         if (job.error) [[unlikely]] {
             return nbio::utility::unexpected(std::exchange(job.error, {}));
         }
-        return {};
+        if (job.communication) {
+            return RdmaCommunication(std::move(*job.communication));
+        }
+        return nbio::utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
     }
 
    private:
     RdmaConnectChannel& channel_;
+    net::Address target_;
 };
 }  // namespace detail
+
 RdmaConnectChannel::RdmaConnectChannel(nbio::net::RdmaConnector& connector, nbio::core::Multiplexer& multiplexer,
                                        nbio::async::Scheduler& scheduler)
     : nbio::core::Channel<RdmaConnectChannel>(nbio::core::ChannelType::kRdmaConnect,
-                                              static_cast<std::uintptr_t>(connector.event_channel_handle()),
-                                              multiplexer, scheduler),
-      connector_(connector) {
-    // What there is to watch is the CM channel the connection was created with: the
-    // handshake it is about to run reports there. No wait is made here; Establish
-    // parks on this fd and takes one step per wake.
-}
+                                              static_cast<std::uintptr_t>(connector.event_channel_handle()), multiplexer,
+                                              scheduler),
+      connector_(connector) {}
 
 RdmaConnectChannel::~RdmaConnectChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
-RdmaResult<void> RdmaConnectChannel::BindSource(const nbio::net::Address& local) noexcept {
-    return connector_.BindSource(local);
+RdmaResult<void> RdmaConnectChannel::SubmitResolve(const net::Address& target) noexcept {
+    return connector_.SubmitResolve(target);
 }
 
-RdmaResult<void> RdmaConnectChannel::BindTarget(const nbio::net::Address& peer) noexcept {
-    return connector_.BindTarget(peer);
+RdmaResult<RdmaCommunication> RdmaConnectChannel::Advance() noexcept {
+    if (auto advanced = connector_.AdvanceResolve(0); !advanced) [[unlikely]] {
+        return utility::unexpected(advanced.error());
+    }
+    if (!connector_.IsResolved()) [[unlikely]] {
+        return utility::unexpected(make_error_code(RdmaErrc::kNotReady));
+    }
+    return connector_.CompleteResolve();
 }
 
-nbio::async::Task<RdmaResult<void>> RdmaConnectChannel::Establish() {
-    co_return co_await detail::RdmaEstablishAwaiter{*this};
+nbio::async::Task<RdmaResult<RdmaCommunication>> RdmaConnectChannel::Connect(const net::Address& target) {
+    co_return co_await detail::RdmaConnectAwaiter{*this, target};
 }
-
-RdmaResult<void> RdmaConnectChannel::Advance() noexcept { return connector_.AdvanceEstablish(); }
 
 RdmaConnectChannel::Payload& RdmaConnectChannel::Submit() { return payload_; }
 
 void RdmaConnectChannel::Complete() {
-    auto& payload = payload_;
-    payload.ReleasePoll();
-
+    payload_.ReleasePoll();
     if (!waiter_) [[unlikely]] {
         return;
     }
 
-    auto step = connector_.AdvanceEstablish();
+    auto& job = job_;
+    auto step = Advance();
     if (step) {
-        job().error.clear();
+        job.communication = std::move(*step);
+        job.error.clear();
     } else if (step.error() == make_error_code(RdmaErrc::kNotReady)) {
-        // The event was about the connection but not its outcome: arm again and
-        // keep the waiter parked.
         Arm();
         return;
     } else {
-        job().error = step.error();
+        job.error = step.error();
     }
 
     auto waiter = std::exchange(waiter_, {});
     scheduler_.Submit(std::move(waiter));
 }
 }  // namespace nbio::net
+
+#endif  // defined(NBIO_ENABLE_RDMA) && defined(__linux__)

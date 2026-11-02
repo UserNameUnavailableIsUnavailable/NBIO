@@ -1,33 +1,21 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
 #include <nbio/net/rdma_listen_service.hpp>
-#include <utility>
+#include <nbio/runtime/daemon.hpp>
 
 namespace nbio::net {
-RdmaListenService::RdmaListenService(RdmaResource& resources, const Address& address, int backlog)
-    : listener_(resources),
-      channel_(listener_, nbio::runtime::Daemon::multiplexer(), nbio::runtime::Daemon::scheduler()) {
-    if (auto reused = listener_.ReuseAddress(true); !reused) [[unlikely]] {
-        throw std::system_error(reused.error(), "Failed to enable RDMA address reuse");
-    }
-    if (auto listening = listener_.Listen(address, backlog); !listening) [[unlikely]] {
-        throw std::system_error(listening.error(), "Failed to listen on RDMA address");
-    }
-}
+RdmaListenService::RdmaListenService(RdmaResource& resource)
+    : listener_(resource),
+      listen_channel_(listener_, nbio::runtime::Daemon::multiplexer(), nbio::runtime::Daemon::scheduler()) {}
 
-nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> RdmaListenService::Accept() {
-    auto accepted = co_await channel_.Accept();
-    if (!accepted) [[unlikely]] {
-        co_return utility::unexpected(accepted.error());
-    }
-    try {
-        co_return std::make_shared<RdmaSessionService>(std::move(*accepted), nbio::runtime::Daemon::multiplexer(),
-                                                       nbio::runtime::Daemon::scheduler());
-    } catch (const std::bad_alloc&) {
-        co_return utility::unexpected(make_error_code(RdmaErrc::kResourceExhausted));
-    } catch (...) {
-        co_return utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
-    }
+RdmaListenService::~RdmaListenService() noexcept = default;
+
+RdmaResult<void> RdmaListenService::Bind(const net::Address& address) noexcept { return listener_.Bind(address); }
+
+RdmaResult<void> RdmaListenService::Listen(int backlog) noexcept { return listener_.Listen(backlog); }
+
+nbio::async::Task<RdmaResult<RdmaCommunication>> RdmaListenService::Accept() {
+    co_return co_await listen_channel_.Accept();
 }
 }  // namespace nbio::net
 

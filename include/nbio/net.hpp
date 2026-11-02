@@ -12,17 +12,21 @@
 #include <nbio/net/rdma_result.hpp>
 #include <nbio/net/rdma_session_service.hpp>
 
-// The queue pair and the regions under them, the channel adapters that attach them
-// to the multiplexer, and -- last -- the primitives, which are infrastructure: they
-// wait with a local poll(2) and are exposed only for callers that want direct
-// control. See docs/rdma.md.
+// The data plane: a prepared communication, and the channel adapters that attach
+// it to the multiplexer.
+#include <nbio/net/rdma_communication.hpp>
 #include <nbio/net/rdma_connect_channel.hpp>
-#include <nbio/net/rdma_connector.hpp>
+#include <nbio/net/rdma_establish_channel.hpp>
 #include <nbio/net/rdma_listen_channel.hpp>
-#include <nbio/net/rdma_listener.hpp>
 #include <nbio/net/rdma_receive_channel.hpp>
-#include <nbio/net/rdma_resource.hpp>
 #include <nbio/net/rdma_send_channel.hpp>
+
+// The control plane -- the primitives, which are infrastructure: they wait with a
+// local poll(2) and are exposed only for callers that want direct control. See
+// docs/rdma.md.
+#include <nbio/net/rdma_connector.hpp>
+#include <nbio/net/rdma_listener.hpp>
+#include <nbio/net/rdma_resource.hpp>
 
 #include <nbio/net/result.hpp>
 #include <nbio/net/tcp_listen_channel.hpp>

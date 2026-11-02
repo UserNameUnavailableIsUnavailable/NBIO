@@ -8,7 +8,6 @@
 #include <nbio/core/types.hpp>
 #include <nbio/net/payload.hpp>
 #include <nbio/net/tcp_connector.hpp>
-#include <nbio/utility/buffer.hpp>
 #include <span>
 #include <system_error>
 

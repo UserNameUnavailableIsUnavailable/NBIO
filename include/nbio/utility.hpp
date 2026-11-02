@@ -1,7 +1,6 @@
 #pragma once
 
 #include <nbio/utility/bitmap.hpp>
-#include <nbio/utility/buffer.hpp>
 #include <nbio/utility/byte.hpp>
 #include <nbio/utility/defer.hpp>
 #include <nbio/utility/expected.hpp>

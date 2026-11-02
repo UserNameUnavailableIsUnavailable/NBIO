@@ -6,7 +6,6 @@
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_listen_service.hpp>
 #include <nbio/net/socket.hpp>
-#include <nbio/utility/buffer.hpp>
 
 using namespace nbio;
 
@@ -30,10 +29,11 @@ nbio::async::Task<void> Service() {
         // task ever runs, so anything it needs must arrive as a by-value
         // parameter (parameters are moved into the frame at call time).
         nbio::async::Spawn([](std::shared_ptr<nbio::net::TcpSessionService> session) -> nbio::async::Task<void> {
-            auto buffer = std::make_unique<::nbio::utility::Buffer>(1024);
+            char buffer[1024];
+            std::size_t size{ 0 };
             while (true) {
                 {
-                    auto res = co_await session->Receive(buffer->writable_span());
+                    auto res = co_await session->Receive(std::span(buffer, sizeof(buffer)));
                     if (!res) {
                         std::cout << "[conn] failed\n";
                         co_return;
@@ -42,22 +42,21 @@ nbio::async::Task<void> Service() {
                         std::cout << "[conn] peer closed\n";
                         co_return;
                     }
-                    buffer->commit(*res);
-                    std::cout << "[conn] received " << *res << " bytes: " << buffer->string_view() << std::endl;
+                    size = *res;
+                    std::cout << "[conn] received " << size << " bytes: " << std::string_view(buffer, size) << std::endl;
                 }
                 {
-                    auto res = co_await session->Send(buffer->readable_span());
+                    auto res = co_await session->Send(buffer);
                     if (!res) {
                         std::cout << "[conn] send failed\n";
                         co_return;
                     }
-                    if (res == 0) {
+                    if (*res == 0) {
                         std::cout << "[conn] peer closed\n";
                         co_return;
                     }
-                    buffer->consume(*res);
-                    std::cout << "[conn] sent " << buffer->string_view() << std::endl;
-                    buffer->consume_all();
+                    
+                    std::cout << "[conn] sent " << size << " bytes: " << std::string_view(buffer, size) << std::endl;
                 }
             }
         }(std::move(session)));

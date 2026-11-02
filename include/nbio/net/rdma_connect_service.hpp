@@ -1,33 +1,36 @@
 #pragma once
-
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
-#include <memory>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
-#include <nbio/net/address.hpp>
+#include <nbio/net/rdma_communication.hpp>
+#include <nbio/net/rdma_connect_channel.hpp>
+#include <nbio/net/rdma_connector.hpp>
 #include <nbio/net/rdma_resource.hpp>
-#include <nbio/net/rdma_result.hpp>
-#include <nbio/net/rdma_session_service.hpp>
 
 namespace nbio::net {
-class RdmaConnectService final {
+/**
+ * @brief The interface half of a connector: an optional bind, then one coroutine
+ *        that resolves the destination and returns the prepared communication.
+ */
+class RdmaConnectService {
    public:
-    explicit RdmaConnectService(RdmaResource& resources) noexcept : resources_(resources) {}
+    RdmaConnectService(RdmaResource& resource, const net::Address& address);
 
     RdmaConnectService(const RdmaConnectService&) = delete;
     RdmaConnectService& operator=(const RdmaConnectService&) = delete;
     RdmaConnectService(RdmaConnectService&&) = delete;
     RdmaConnectService& operator=(RdmaConnectService&&) = delete;
+    ~RdmaConnectService() noexcept;
 
-    ~RdmaConnectService() noexcept = default;
+    RdmaResult<void> Bind(const net::Address& source) noexcept;
 
-    nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> Connect(const Address& peer);
-    nbio::async::Task<RdmaResult<std::shared_ptr<RdmaSessionService>>> Connect(const Address& local,
-                                                                               const Address& peer);
+    /** @brief Resolves and returns the prepared communication, not connected. */
+    nbio::async::Task<RdmaResult<RdmaCommunication>> Connect();
 
    private:
-    RdmaResource& resources_;
+    RdmaConnector connector_;
+    net::Address address_;
+    RdmaConnectChannel connect_channel_;
 };
 }  // namespace nbio::net
 

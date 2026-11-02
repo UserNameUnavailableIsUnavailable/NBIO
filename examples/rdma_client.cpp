@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <nbio/async.hpp>
 #include <nbio/net.hpp>
 #include <span>
@@ -43,13 +44,13 @@ nbio::async::Task<void> RunClient(std::string_view device, std::string_view ip, 
         std::cerr << "Invalid RDMA address: " << address.error().message() << '\n';
         co_return;
     }
-    nbio::net::RdmaConnectService connector{resource};
-    auto connected = co_await connector.Connect(*address);
+    nbio::net::RdmaConnectService connector{resource, *address};
+    auto connected = co_await connector.Connect();
     if (!connected) {
-        std::cerr << "Failed to connect to RDMA address: " << connected.error().message() << '\n';
+        std::cerr << "Failed to create an RDMA connection: " << connected.error().message() << '\n';
         co_return;
     }
-    auto session = std::move(*connected);
+    auto session = std::make_shared<nbio::net::RdmaSessionService>(std::move(*connected));
     if (auto up = co_await session->Establish(); !up) {
         std::cerr << "Failed to establish the RDMA connection: " << up.error().message() << '\n';
         co_return;
@@ -60,17 +61,22 @@ nbio::async::Task<void> RunClient(std::string_view device, std::string_view ip, 
     auto buffer = arena.send_space().first(message.size());
     std::memcpy(buffer.data(), message.data(), message.size());
 
-    auto posted = session->send_channel().Post(buffer);
+    auto posted = session->SubmitSend(buffer);
     if (!posted) {
         std::cerr << "Failed to post RDMA data: " << posted.error().message() << '\n';
         co_return;
     }
-    auto retired = co_await session->send_channel().Wait(*posted);
-    if (!retired) {
+    if (auto retired = co_await session->WaitSend(*posted); !retired) {
         std::cerr << "Failed to complete RDMA send: " << retired.error().message() << '\n';
         co_return;
     }
-    std::cout << "Sent " << retired->buffer.size() << " bytes\n";
+    auto peeked = session->PeekSend(*posted);
+    if (!peeked) {
+        std::cerr << "Failed to peek RDMA send: " << peeked.error().message() << '\n';
+        co_return;
+    }
+    session->CompleteSend(*posted);
+    std::cout << "Sent " << peeked->buffer.size() << " bytes\n";
 }
 
 int main(int argc, char* argv[]) {

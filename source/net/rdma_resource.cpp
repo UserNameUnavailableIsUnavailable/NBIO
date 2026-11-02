@@ -10,7 +10,6 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
-#include <utility>
 
 namespace nbio::net {
 namespace {

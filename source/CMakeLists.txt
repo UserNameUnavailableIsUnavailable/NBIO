@@ -3,7 +3,6 @@ add_library(nbio::nbio ALIAS nbio)
 
 add_subdirectory(core)
 add_subdirectory(async)
-add_subdirectory(utility)
 add_subdirectory(fs)
 add_subdirectory(net)
 add_subdirectory(notification)

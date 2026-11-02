@@ -11,13 +11,13 @@
 
 namespace nbio::net {
 /**
- * @brief The sequence number the connector assigns to one posted work request.
+ * @brief The sequence number a communication assigns to one submitted work request.
  *
  * @details Sequence numbers are assigned per direction and start at one, so zero
  * is never a valid sequence. They are what a completion comes back carrying, and
- * therefore what @ref RdmaConnector::FetchSend and @ref RdmaConnector::FetchReceive
- * are asked for. A sequence number is a handle to one posted work request; it is
- * not a cursor.
+ * therefore what @ref RdmaCommunication::PeekSend and
+ * @ref RdmaCommunication::PeekReceive are asked for. A sequence number is a handle
+ * to one posted work request; it is not a cursor.
  */
 using RdmaSeq = std::uint64_t;
 
@@ -34,7 +34,7 @@ enum class RdmaErrc {
     kNotReady,         ///< The work request has not been reaped yet.
     kInvalidSequence,  ///< Never posted, already released, or outside the live range.
     kQueueFull,        ///< The ring has no free slot; consume results to make room.
-    kNoTarget,         ///< An active connector has no target address: BindTarget was never called.
+    kNoTarget,         ///< A connector has no target address.
 };
 
 /**
@@ -71,7 +71,7 @@ class RdmaErrorCategory final : public std::error_category {
             case RdmaErrc::kQueueFull:
                 return "RDMA work request ring is full";
             case RdmaErrc::kNoTarget:
-                return "active RDMA connector has no target address; call BindTarget first";
+                return "RDMA connector has no target address";
         }
         return "unknown RDMA error";
     }

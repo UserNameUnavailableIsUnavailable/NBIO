@@ -10,9 +10,9 @@ the same objects at the bottom. Know which one you are programming against.
 
 | | Primitives | Channel system |
 | --- | --- | --- |
-| Objects | `RdmaResource`, `RdmaListener`, `RdmaConnector` | `RdmaSendChannel`, `RdmaReceiveChannel`, `RdmaListenChannel`, `RdmaConnectChannel`, and the services built on them |
+| Objects | `RdmaResource`, `RdmaListener`, `RdmaConnector`, `RdmaCommunication` | `RdmaSendChannel`, `RdmaReceiveChannel`, `RdmaListenChannel`, `RdmaConnectChannel`, `RdmaEstablishChannel`, and the services built on them |
 | Waits by | a local `poll(2)` on its own event or completion fd | parking the coroutine and registering the fd with the multiplexer |
-| Blocking | by default; `NonBlocking()` makes the call return empty-handed | never; `Complete()` is called by the backend |
+| Blocking | the control-plane calls wait, the data-plane calls take a timeout | never; `Complete()` is called by the backend |
 | Thread model | whatever thread calls it | the scheduler thread |
 | Audience | infrastructure, and callers who want direct control | applications |
 
@@ -26,18 +26,19 @@ caller and by epoll at the same time.
 **Recommended: the services.**
 
 ```cpp
-nbio::net::RdmaListenService     // accept prepared sessions
-nbio::net::RdmaConnectService    // target a peer, get a prepared session
-nbio::net::RdmaSessionService    // establish, then post and wait
+nbio::net::RdmaListenService     // Bind, Listen, then Accept a prepared communication
+nbio::net::RdmaConnectService    // Bind, then resolve a peer into a prepared communication
+nbio::net::RdmaSessionService    // wraps a communication: Establish, Submit, Wait, Peek, Complete
 nbio::net::RdmaDeliverService    // a windowed, acknowledged byte stream over a session
 ```
 
 They are coroutine-native: every wait is a `Task`, and every blocking step is a
 park on the multiplexer.
 
-**Direct control: the primitives.** `RdmaListener` and `RdmaConnector` are
-reserved as basic infrastructure and are not the recommended interface. They are
-still public, because some callers genuinely want them:
+**Direct control: the primitives.** `RdmaListener`, `RdmaConnector`, and
+`RdmaCommunication` are reserved as basic infrastructure and are not the
+recommended interface. They are still public, because some callers genuinely
+want them:
 
 - an application with its own thread and its own event loop;
 - a probe or a benchmark that drives one queue pair synchronously;
@@ -65,41 +66,45 @@ Each direction numbers its work requests from one.
 
 | Call | Answers |
 | --- | --- |
-| `PostSend` / `PostReceive` | the sequence number assigned |
+| `SubmitSend` / `SubmitReceive` | the sequence number assigned, or `kQueueFull` |
 | `WaitSend(seq, timeout)` / `WaitReceive(seq, timeout)` | the highest sequence number reaped; a timeout returns the high-water mark, not an error |
-| `FetchSend(seq)` / `FetchReceive(seq)` | the buffer, and for a receive the bytes written; `kNotReady` until reaped; may be asked repeatedly |
-| `DropSend(seq)` / `DropReceive(seq)` | releases the slot |
+| `PeekSend(seq)` / `PeekReceive(seq)` | the buffer, and for a receive the bytes written; `kNotReady` until reaped; may be asked repeatedly |
+| `CompleteSend(seq)` / `CompleteReceive(seq)` | releases the slot |
 
 Slots are indexed by `seq % depth`, so a completion is one array index. The head
-advances only over slots that are dropped **and** no longer in flight — advancing
-over an in-flight slot would let a late completion land on a new occupant.
-Releasing out of order therefore does not free capacity until the oldest live
-sequence number is released; a producer that never drops sees `kQueueFull` with
-the hardware queue empty.
+advances only over slots that are completed **and** no longer in flight —
+advancing over an in-flight slot would let a late completion land on a new
+occupant. Releasing out of order therefore does not free capacity until the
+oldest live sequence number is released; a producer that never completes sees
+`kQueueFull` with the hardware queue empty.
 
-`Fetch` is a read and `Drop` is a release, which is why the connector is
-deliberately forgiving and the channels are not: a channel's `Wait` drops, so a
-second wait for the same sequence number fails with `kInvalidSequence`.
+`Peek` is a read and `Complete` is a release: a caller may ask for the same
+result many times, but must complete a sequence exactly once to put its slot
+back. The channels' `Wait` only parks and returns the high-water mark, so the
+caller is responsible for the `Peek` and `Complete` that follow.
 
 ## 5. Connection lifecycle
 
-```
-             BindSource(local)            BindTarget(peer)            Establish()
-active:      rdma_bind_addr      ->      resolve addr + route  ->    rdma_connect
-                                         build QP                   + ESTABLISHED
+The control plane prepares, the data plane finishes.
 
-passive:     listener Accept()   ->      QP already built      ->    rdma_accept
-             (request in hand)           (post receives here)       + ESTABLISHED
+```
+active:      connector.Resolve(peer)  ->  communication  ->  communication.Establish()
+             resolve addr + route          QP built           rdma_connect + ESTABLISHED
+             build QP                     (post receives here)
+
+passive:     listener.Accept()        ->  communication  ->  communication.Establish()
+             (request in hand)            QP already built    rdma_accept + ESTABLISHED
+                                          (post receives here)
 ```
 
 The split exists because **`rdma_accept` / `rdma_connect` is what lets the peer
 send**. Everything needed to post a receive exists one step earlier, so a receiver
 posts between the two and no packet can arrive unannounced. The same gap is where
-a server decides to refuse: letting a prepared connector go rejects the request.
+a server decides to refuse: letting a prepared communication go rejects the
+request.
 
-An active connector has no destination until `BindTarget` has been called;
-`Establish` answers `kNoTarget` rather than waiting for a connection that can
-never be made.
+A connector resolves an address once and hands the result over; after `Resolve`
+it is spent, and the communication owns the id and its event channel from then on.
 
 ## 6. Where policy lives
 

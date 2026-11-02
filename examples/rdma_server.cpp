@@ -1,6 +1,7 @@
 #include <CLI/CLI.hpp>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <nbio/async.hpp>
 #include <nbio/net.hpp>
 #include <span>
@@ -42,25 +43,27 @@ nbio::async::Task<void> RunServer(std::string_view device, std::string_view ip, 
         std::cerr << "Invalid RDMA address: " << address.error().message() << '\n';
         co_return;
     }
-    std::unique_ptr<nbio::net::RdmaListenService> listener;
-    try {
-        listener = std::make_unique<nbio::net::RdmaListenService>(resource, *address);
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to start RDMA server: " << e.what() << '\n';
+    nbio::net::RdmaListenService listener{resource};
+    if (auto bound = listener.Bind(*address); !bound) {
+        std::cerr << "Failed to bind the RDMA address: " << bound.error().message() << '\n';
+        co_return;
+    }
+    if (auto listening = listener.Listen(); !listening) {
+        std::cerr << "Failed to listen on the RDMA address: " << listening.error().message() << '\n';
         co_return;
     }
     std::cout << "Listening on RDMA " << *(address->ip()) << ':' << *(address->port()) << '\n';
 
-    auto accepted = co_await listener->Accept();
+    auto accepted = co_await listener.Accept();
     if (!accepted) {
         std::cerr << "Failed to accept RDMA connection: " << accepted.error().message() << '\n';
         co_return;
     }
-    auto session = std::move(*accepted);
+    auto session = std::make_shared<nbio::net::RdmaSessionService>(std::move(*accepted));
 
     // A receive has to be posted before the peer sends, and the connection is only
     // prepared at this point: posting now is what closes the window.
-    auto posted = session->receive_channel().Post(arena.receive_space());
+    auto posted = session->SubmitReceive(arena.receive_space());
     if (!posted) {
         std::cerr << "Failed to post an RDMA receive: " << posted.error().message() << '\n';
         co_return;
@@ -69,13 +72,18 @@ nbio::async::Task<void> RunServer(std::string_view device, std::string_view ip, 
         std::cerr << "Failed to establish the RDMA connection: " << up.error().message() << '\n';
         co_return;
     }
-    auto received = co_await session->receive_channel().Wait(*posted);
-    if (!received) {
+    if (auto received = co_await session->WaitReceive(*posted); !received) {
         std::cerr << "Failed to receive RDMA data: " << received.error().message() << '\n';
         co_return;
     }
-    const std::string_view message{received->buffer.data(), received->bytes};
+    auto peeked = session->PeekReceive(*posted);
+    if (!peeked) {
+        std::cerr << "Failed to peek RDMA receive: " << peeked.error().message() << '\n';
+        co_return;
+    }
+    const std::string_view message{peeked->buffer.data(), peeked->bytes};
     std::cout << "Received: " << message << '\n';
+    session->CompleteReceive(*posted);
 }
 
 int main(int argc, char* argv[]) {
