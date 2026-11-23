@@ -101,9 +101,9 @@ static decltype(auto) visit_channel(ChannelBase* channel, Visitor&& visitor) {
     return std::visit(std::forward<Visitor>(visitor), as_variant(channel));
 }
 
-void IOURingMultiplexer::Run() { RunImpl(-1); }
+void IOURingMultiplexer::Wait() { RunImpl(-1); }
 
-void IOURingMultiplexer::RunFor(std::chrono::milliseconds timeout) {
+void IOURingMultiplexer::WaitFor(std::chrono::milliseconds timeout) {
     auto now = std::chrono::steady_clock::now();
     const auto due = now + timeout;
     do {

@@ -213,9 +213,9 @@ void EpollMultiplexer::RunImpl(int timeout_ms) {
     } while (retry);
 }
 
-void EpollMultiplexer::Run() { RunImpl(-1); }
+void EpollMultiplexer::Wait() { RunImpl(-1); }
 
-void EpollMultiplexer::RunFor(std::chrono::milliseconds timeout) {
+void EpollMultiplexer::WaitFor(std::chrono::milliseconds timeout) {
     auto now = std::chrono::steady_clock::now();
     auto due = now + timeout;
     do {
