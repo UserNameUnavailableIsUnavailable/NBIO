@@ -1,10 +1,10 @@
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/core/types.hpp>
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/socket.hpp>
+#include <nbio/net/tcp_listen_channel.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -30,7 +30,7 @@ TcpListenChannel::TcpListenChannel(nbio::net::TcpListener& listener, nbio::core:
 TcpListenChannel::~TcpListenChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
 class AcceptAwaiter {
-   public:
+public:
     AcceptAwaiter(TcpListenChannel& channel) : channel_(channel) {}
     AcceptAwaiter(const AcceptAwaiter&) = delete;
     AcceptAwaiter& operator=(const AcceptAwaiter&) = delete;
@@ -47,7 +47,7 @@ class AcceptAwaiter {
 
     net::Communication await_resume() noexcept { return std::move(communication_); }
 
-   private:
+private:
     TcpListenChannel& channel_;
     net::Communication communication_{};
 };
@@ -81,7 +81,7 @@ TcpListenChannel::Payload& TcpListenChannel::Submit() { return payload_; }
 
 void TcpListenChannel::Complete() {
     auto& payload = payload_;
-    while (auto next = payload.next_completion()) {
+    while (auto next = payload.NextCompletion()) {
         auto waiter = std::move(waiters_.front());
         waiters_.pop_front();
         scheduler_.Submit(std::move(waiter));

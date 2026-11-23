@@ -1,5 +1,4 @@
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/fs/file.hpp>
 #include <nbio/fs/file_stream.hpp>
 #include <nbio/fs/file_write_channel.hpp>
@@ -9,7 +8,7 @@
 
 namespace nbio::fs {
 class WriteAwaiter {
-   public:
+public:
     WriteAwaiter(FileWriteChannel& channel, std::span<const char> buffer) : channel_(channel), buffer_(buffer) {}
 
     bool await_ready() const noexcept { return false; }
@@ -29,7 +28,7 @@ class WriteAwaiter {
 
     fs::Transmission await_resume() const noexcept { return transmission_; }
 
-   private:
+private:
     FileWriteChannel& channel_;
     std::span<const char> buffer_;
     fs::Transmission transmission_{};

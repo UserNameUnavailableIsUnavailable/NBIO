@@ -2,9 +2,9 @@
 
 #include <cstddef>
 #include <filesystem>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/fs/file_stream.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/utility/expected.hpp>
 #include <span>
 #include <system_error>
@@ -18,7 +18,7 @@ namespace nbio::fs {
 // where the file's readiness is watched -- and it owns the file by value, because one
 // owner is the whole point: there is nothing to hand back.
 class FileStreamService final {
-   public:
+public:
     // Opens `path`, read-write and created if it is not there unless told otherwise.
     // Throws when there is no engine on this thread, or when the file cannot be
     // opened: a service that exists is one that has the file.
@@ -41,7 +41,7 @@ class FileStreamService final {
 
     nbio::fs::FileStream& stream() noexcept { return stream_; }
 
-   private:
+private:
     FileStream stream_;
 };
 }  // namespace nbio::fs

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <deque>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
@@ -15,7 +14,7 @@ namespace nbio::net {
 class ReceiveAwaiter;
 
 class TcpReceiveChannel final : public nbio::core::Channel<TcpReceiveChannel> {
-   public:
+public:
     using Payload = detail::MessagePayload<TcpReceiveChannel>;
 
     explicit TcpReceiveChannel(nbio::net::TcpConnector& connector, nbio::core::Multiplexer& multiplexer,
@@ -32,7 +31,7 @@ class TcpReceiveChannel final : public nbio::core::Channel<TcpReceiveChannel> {
     net::TcpConnector& connector() noexcept { return connector_; }
     const net::TcpConnector& connector() const noexcept { return connector_; }
 
-   private:
+private:
     friend class ReceiveAwaiter;
 
     // Queues the receive and arms the channel: this is the suspension point, and

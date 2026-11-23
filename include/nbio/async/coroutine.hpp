@@ -44,10 +44,12 @@ struct CoroutineControlBlock : std::enable_shared_from_this<CoroutineControlBloc
     Scheduler* scheduler{nullptr};
     std::list<std::shared_ptr<CoroutineControlBlock>>::iterator index;  // where the registry holds this block
     std::atomic<CoroutineLifecycle> state{CoroutineLifecycle::kAlive};
-    Coroutine join{};           // the coroutine Parked on `co_await token`, if any
+    Coroutine join{};                    // the coroutine Parked on `co_await token`, if any
     CoroutineJoinStatus* join_status{};  // where that joiner reads the outcome from, inside its own frame
 
-    bool is_cancelled() const noexcept { return state.load(std::memory_order_acquire) == CoroutineLifecycle::kCancelled; }
+    bool is_cancelled() const noexcept {
+        return state.load(std::memory_order_acquire) == CoroutineLifecycle::kCancelled;
+    }
     bool is_finished() const noexcept { return state.load(std::memory_order_acquire) == CoroutineLifecycle::kFinished; }
     bool is_dead() const noexcept { return state.load(std::memory_order_acquire) != CoroutineLifecycle::kAlive; }
 
@@ -58,7 +60,7 @@ struct CoroutineControlBlock : std::enable_shared_from_this<CoroutineControlBloc
 };
 
 class CoroutineJoinHandle {
-   public:
+public:
     CoroutineJoinHandle() noexcept = default;
     explicit CoroutineJoinHandle(const std::shared_ptr<CoroutineControlBlock>& control_block) noexcept
         : coroutine_control_block_(control_block) {}
@@ -103,8 +105,9 @@ class CoroutineJoinHandle {
 
     JoinAwaiter operator co_await() const noexcept { return JoinAwaiter{coroutine_control_block_}; }
 
-   private:
-    // TODO: Should we make this a shared_ptr? With weak_ptr, one cannot know the exact lifetime of the coroutine once the control block is gone.
+private:
+    // TODO: Should we make this a shared_ptr? With weak_ptr, one cannot know the exact lifetime of the coroutine once
+    // the control block is gone.
     std::weak_ptr<CoroutineControlBlock> coroutine_control_block_;
 };
 

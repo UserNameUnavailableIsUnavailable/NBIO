@@ -6,7 +6,7 @@
 namespace nbio::core {
 template <typename T, typename Compare = std::less<T>>
 class PriorityQueue {
-   public:
+public:
     void push(const T& value) {
         data_.push_back(value);
         std::push_heap(data_.begin(), data_.end(), comparator_);
@@ -65,7 +65,7 @@ class PriorityQueue {
 
     const std::vector<T>& data() const { return data_; }
 
-   private:
+private:
     std::vector<T> data_;
     Compare comparator_;
 };

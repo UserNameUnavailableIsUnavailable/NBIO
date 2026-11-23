@@ -14,6 +14,19 @@ NBIO 是面向 Linux 的 C++20 异步 I/O 库，以协程、事件驱动调度�
 
 I/O 操作由通道排队；多路复用器报告就绪或完成事件后，相应协程恢复执行。`epoll` 路径采用 reactor 模型，`io_uring` 路径采用 proactor 模型。`nbio::async::Run` 驱动调度器及其多路复用器，直到根任务和未完成工作结束。
 
+### Windows 核心支持（第一阶段）
+
+已加入 IOCP 数据传输与定时器分发，以及共享的 `nbio::core::Scatter`。
+套接字使用 `WSARecv` / `WSASend` 向量 I/O；文件按队列顺序逐个提交缓冲区，
+使用显式 64 位偏移，部分写入完成后才处理下一个缓冲区。
+Windows 文件打开、通知、信号、异步 accept/connect 和其余服务仍待实现，
+尚不能构建完整 Windows 库。未支持的通道类型会显式报错。
+
+启用 `BUILD_TESTING=ON` 后，可单独构建 `nbio_windows_core_testing`，
+并通过 `ctest --test-dir build -C Debug -R "^windows_core\." --output-on-failure`
+运行定时器、套接字和 payload 测试。Windows 文件端到端测试留待文件对象实现后补充。
+句柄生命周期和使用限制详见 [Windows 核心说明](README.md#windows-core-increment)。
+
 ## 环境要求
 
 - Linux

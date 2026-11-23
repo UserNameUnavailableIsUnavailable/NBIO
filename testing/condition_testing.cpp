@@ -3,13 +3,13 @@
 #include <atomic>
 #include <chrono>
 #include <future>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/notification/condition_variable.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <thread>
 
 namespace {
-using nbio::runtime::Daemon;
 using nbio::notification::ConditionVariable;
+using nbio::runtime::Daemon;
 
 // A ConditionVariable binds the engine's notify channel on construction, so the
 // Daemon has to be installed before any test body runs.

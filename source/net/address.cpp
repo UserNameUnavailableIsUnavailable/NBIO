@@ -3,28 +3,6 @@
 #include <stdexcept>
 
 namespace nbio::net {
-Address Address::FromV4(std::string_view ip, std::uint16_t port) {
-    auto result = FromIPv4(ip, port);
-    if (!result) {
-        if (result.error() == std::errc::invalid_argument) {
-            throw std::invalid_argument("Address::FromV4: invalid IPv4 address");
-        }
-        throw std::system_error(result.error(), "Address::FromV4: inet_pton failed");
-    }
-    return *result;
-}
-
-Address Address::FromV6(std::string_view ip, std::uint16_t port) {
-    auto result = FromIPv6(ip, port);
-    if (!result) {
-        if (result.error() == std::errc::invalid_argument) {
-            throw std::invalid_argument("Address::FromV6: invalid IPv6 address");
-        }
-        throw std::system_error(result.error(), "Address::FromV6: inet_pton failed");
-    }
-    return *result;
-}
-
 utility::expected<Address, std::error_code> Address::FromIPv4(std::string_view ip, std::uint16_t port) {
     if (ip.find('\0') != std::string_view::npos) {
         return utility::unexpected<std::error_code>(std::make_error_code(std::errc::invalid_argument));

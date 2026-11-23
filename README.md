@@ -8,10 +8,50 @@ NBIO is a cross-platform C++ 20 Asynchronous I/O library.
   - `io_uring` (kernel verson > 5.1)
 
 Under construction:
-- Windows: `IOCP`
+- Windows: initial `IOCP` backend (see below; not yet a complete Windows port)
 - UNIX variants: `kqueue`
 
 ## Configure and build
+
+### Windows core increment
+
+The IOCP backend supports timer channels, vectorized socket receives/sends, and
+sequential overlapped file reads/writes. `nbio::core::Scatter` describes a
+buffer pointer (`buffers`) and byte length (`count`). Both file and socket
+payloads expose these through `header()`; Linux backends use `native_header()`
+to obtain persistent `iovec`/`msghdr` storage instead.
+
+Files submit one queued buffer at a time with an explicit 64-bit offset; partial
+writes continue before the next buffer. Sockets use `WSARecv`/`WSASend` batches.
+Windows data handles must support overlapped I/O, retain normal completion-port
+notifications, and belong to only one multiplexer for their lifetime. Association
+is retained across channel disarming and shared by receive/send channels.
+Destroy channels before their native objects and the multiplexer. Unregistering
+an in-flight channel cancels and waits for kernel access to its buffers to end;
+its completion storage stays alive until the completion packet is drained.
+Call registration and dispatch methods on the owning scheduler thread, and keep
+submission buffers alive until completion or channel removal.
+
+Windows `Timer` uses a waitable timer, bridged to IOCP by a one-shot registered
+wait. `Wait()` waits for one completion; `WaitFor()` waits up to the requested
+duration (zero or negative means poll), dispatches at most one completion, then
+submits any remaining work.
+
+File opening and the remaining Windows services, notifications, signals, and
+asynchronous accept/connect are deferred. Unsupported channel types throw
+instead of silently doing nothing. The complete library/examples are not yet
+Windows-buildable. The focused target builds without those deferred objects:
+
+```powershell
+cmake --build build --config Debug --target nbio_windows_core_testing
+ctest --test-dir build -C Debug -R "^windows_core\." --output-on-failure
+```
+
+Configure with `BUILD_TESTING=ON` and the existing vcpkg toolchain first.
+These tests exercise timers, socket completions/cancellation, and shared payloads;
+end-to-end Windows file tests await the file-object implementation.
+
+### Linux
 
 The Linux `epoll` backend is the default. io_uring and RDMA are opt-in so a
 normal build does not require their development packages. Examples are also

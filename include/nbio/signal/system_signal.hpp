@@ -8,7 +8,7 @@
 
 namespace nbio::signal {
 class SystemSignal {
-   public:
+public:
     SystemSignal();
     ~SystemSignal() noexcept;
     std::uintptr_t native_handle() const noexcept { return handle_; }
@@ -16,7 +16,7 @@ class SystemSignal {
 
     void NonBlocking(bool enabled = true);
 
-   private:
+private:
     // IMPORTANT: one Signal is consumed once
     // When a Signal is received, broadcast it as an event to all holders.
     std::uintptr_t handle_;       // event handle

@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
@@ -11,12 +10,12 @@
 #include <nbio/fs/file.hpp>
 #include <string>
 
-#if not defined(__linux__)
-#error "async::FileStream is only supported on Linux"
-#endif
-
 #include "file_read_channel.hpp"
 #include "file_write_channel.hpp"
+
+namespace nbio::core {
+class IOCPMultiplexer;
+}
 
 namespace nbio::fs {
 class FileReadChannel;
@@ -29,7 +28,7 @@ class FileWriteChannel;
 // each channel holds a reference to this -- and it is shared with nobody, because
 // the channels are its only referrers and it is the one thing they refer to.
 class FileStream {
-   public:
+public:
     FileStream(const std::string& path, nbio::fs::FileMode mode, std::filesystem::perms permissions,
                nbio::core::Multiplexer& multiplexer, nbio::async::Scheduler& scheduler);
     FileStream(const FileStream&) = delete;
@@ -55,7 +54,11 @@ class FileStream {
     FileReadChannel& read_channel() noexcept;
     FileWriteChannel& write_channel() noexcept;
 
-   private:
+private:
+    friend class core::IOCPMultiplexer;
+#if defined(_WIN32)
+    std::uintptr_t completion_port_{};
+#endif
     nbio::fs::File file_;
     std::unique_ptr<FileReadChannel> read_channel_;
     std::unique_ptr<FileWriteChannel> write_channel_;

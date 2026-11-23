@@ -12,7 +12,7 @@ namespace nbio::core {
 // multiplexer holds a pointer to the channel, so it has to stay where it was
 // registered.
 class ChannelBase {
-   public:
+public:
     explicit ChannelBase(ChannelType type, std::uintptr_t native_handle, Multiplexer& multiplexer,
                          nbio::async::Scheduler& scheduler)
         : type_(type), native_handle_(native_handle), multiplexer_(multiplexer), scheduler_(scheduler) {}
@@ -46,8 +46,8 @@ class ChannelBase {
     // nothing to update, only to add and to remove.
     void Arm() {
         if (armed_) return;
-        armed_ = true;
         multiplexer_.AddChannel(this);
+        armed_ = true;
     }
 
     // Disarm a channel: its events will no longer be reported by the multiplexer.
@@ -57,7 +57,7 @@ class ChannelBase {
         multiplexer_.DeleteChannel(this);
     }
 
-   protected:
+protected:
     const ChannelType type_;
     const std::uintptr_t native_handle_;
     Multiplexer& multiplexer_;
@@ -67,7 +67,7 @@ class ChannelBase {
 
 template <typename C>
 class Channel : public ChannelBase {
-   public:
+public:
     using ChannelBase::ChannelBase;
 
     auto Submit() { return static_cast<C*>(this)->Submit(); }

@@ -77,11 +77,9 @@ struct Promise {
     };
 };
 
-
-
 template <typename T>
 class Task {
-   public:
+public:
     struct promise_type : Promise {
         std::variant<std::monostate, T, std::exception_ptr> result_;
 
@@ -168,13 +166,13 @@ class Task {
     // co_await task; // use after free!
     Awaiter operator co_await() && noexcept { return Awaiter{get_typed_handle()}; }
 
-   private:
+private:
     std::coroutine_handle<> handle_{};
 };
 
 template <>
 class Task<void> {
-   public:
+public:
     struct promise_type : Promise {
         std::exception_ptr error_;
 
@@ -241,7 +239,7 @@ class Task<void> {
 
     Awaiter operator co_await() && noexcept { return Awaiter{get_typed_handle()}; }
 
-   private:
+private:
     std::coroutine_handle<> handle_{};
 };
 }  // namespace nbio::async

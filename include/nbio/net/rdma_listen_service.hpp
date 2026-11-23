@@ -13,7 +13,7 @@ namespace nbio::net {
  *        coroutine that waits for a connection request and returns it prepared.
  */
 class RdmaListenService {
-   public:
+public:
     explicit RdmaListenService(RdmaResource& resource);
 
     RdmaListenService(const RdmaListenService&) = delete;
@@ -30,7 +30,7 @@ class RdmaListenService {
 
     RdmaListener& listener() noexcept { return listener_; }
 
-   private:
+private:
     RdmaListener listener_;
     RdmaListenChannel listen_channel_;
 };

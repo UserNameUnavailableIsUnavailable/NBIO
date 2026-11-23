@@ -5,11 +5,11 @@
 #include <nbio/notification/notifier_channel.hpp>
 
 namespace nbio::notification {
-NotifierChannel::NotifierChannel(nbio::notification::Notifier& notifier,
-                                       nbio::core::Multiplexer& multiplexer, nbio::async::Scheduler& scheduler)
+NotifierChannel::NotifierChannel(nbio::notification::Notifier& notifier, nbio::core::Multiplexer& multiplexer,
+                                 nbio::async::Scheduler& scheduler)
     : nbio::core::Channel<NotifierChannel>(nbio::core::ChannelType::kNotify,
-                                              static_cast<std::uintptr_t>(notifier.native_handle()), multiplexer,
-                                              scheduler),
+                                           static_cast<std::uintptr_t>(notifier.native_handle()), multiplexer,
+                                           scheduler),
       notifier_(notifier) {
     notifier.NonBlocking(true);
 

@@ -1,27 +1,43 @@
 #pragma once
 
+#if defined(__linux__)
 #include <sys/uio.h>
+#endif
 
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <nbio/core/scatter.hpp>
 #include <nbio/fs/result.hpp>
 #include <vector>
 
 namespace nbio::fs::detail {
+using core::Scatter;
+
 template <typename C>
 class IOVectorPayload {
-   public:
-    std::vector<::iovec>& header() noexcept {
+public:
+    std::vector<Scatter>& header() {
         submitted_.insert(submitted_.end(), prepared_.begin(), prepared_.end());
         prepared_.clear();
         vectors_.clear();
         for (auto* trans : submitted_) {
-            vectors_.emplace_back(::iovec{.iov_base = trans->buffer.data(), .iov_len = trans->buffer.size()});
+            vectors_.push_back(Scatter{trans->buffer.data(), trans->buffer.size()});
         }
         return vectors_;
     }
+
+#if defined(__linux__)
+    std::vector<::iovec>& native_header() {
+        const auto& scatters = header();
+        native_vectors_.clear();
+        for (const auto& scatter : scatters) {
+            native_vectors_.push_back(::iovec{scatter.buffers, scatter.count});
+        }
+        return native_vectors_;
+    }
+#endif
 
     std::uint64_t offset() const noexcept { return offset_; }
     void set_offset(std::uint64_t offset) noexcept { offset_ = offset; }
@@ -48,9 +64,12 @@ class IOVectorPayload {
         completed_.pop_front();
     }
 
-   private:
+private:
     std::uint64_t offset_{0};
-    std::vector<::iovec> vectors_;
+    std::vector<Scatter> vectors_;
+#if defined(__linux__)
+    std::vector<::iovec> native_vectors_;
+#endif
     std::deque<Transmission*> prepared_{};
     std::deque<Transmission*> submitted_{};
     std::deque<Transmission*> completed_{};

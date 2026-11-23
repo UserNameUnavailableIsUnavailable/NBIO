@@ -19,7 +19,7 @@ struct CoroutineControlBlock;
 // terminal state. One thread owns a Scheduler: Spawn(), submit() and cancel() all come
 // from coroutines it is running.
 class Scheduler {
-   public:
+public:
     explicit Scheduler(std::function<void(bool blocking)> idle) : idle_(std::move(idle)) {}
     ~Scheduler() = default;
 
@@ -53,7 +53,7 @@ class Scheduler {
 
     bool is_empty() const noexcept { return roots_.empty() && reclaimed_.empty(); }
 
-   private:
+private:
     std::vector<Coroutine> ready_;
     std::vector<Coroutine> ready_batch_;  // a coroutine resumed may submit a new coroutine into ready_, so we swap
                                           // ready_ into batch_ before each run

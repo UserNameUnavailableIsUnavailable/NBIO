@@ -7,7 +7,7 @@
 namespace nbio::net {
 namespace detail {
 class RdmaSendWaitAwaiter {
-   public:
+public:
     RdmaSendWaitAwaiter(RdmaSendChannel& channel, RdmaSeq seq) : channel_(channel), seq_(seq) {}
 
     bool await_ready() const noexcept { return false; }
@@ -42,7 +42,7 @@ class RdmaSendWaitAwaiter {
         return job.mark;
     }
 
-   private:
+private:
     RdmaSendChannel& channel_;
     RdmaSeq seq_;
 };

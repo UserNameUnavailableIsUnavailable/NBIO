@@ -2,16 +2,16 @@
 
 #include <deque>
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
 #include <nbio/core/types.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/payload.hpp>
-#include <nbio/net/tcp_listener.hpp>
-#include <nbio/net/tcp_connector.hpp>
 #include <nbio/net/socket.hpp>
+#include <nbio/net/tcp_connector.hpp>
+#include <nbio/net/tcp_listener.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <optional>
 #include <utility>
 
@@ -19,7 +19,7 @@ namespace nbio::net {
 class AcceptAwaiter;
 
 class TcpListenChannel final : public nbio::core::Channel<TcpListenChannel> {
-   public:
+public:
     using Payload = detail::CommunicationPayload<TcpListenChannel>;
 
     TcpListenChannel(nbio::net::TcpListener& listener, nbio::core::Multiplexer& multiplexer,
@@ -41,7 +41,7 @@ class TcpListenChannel final : public nbio::core::Channel<TcpListenChannel> {
     net::TcpListener& listener() noexcept { return listener_; }
     const net::TcpListener& listener() const noexcept { return listener_; }
 
-   private:
+private:
     friend class AcceptAwaiter;
 
     // Queues the wait and arms the channel: this is the suspension point, and being

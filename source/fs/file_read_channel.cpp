@@ -1,4 +1,3 @@
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/fs/file.hpp>
 #include <nbio/fs/file_read_channel.hpp>
 #include <nbio/fs/file_stream.hpp>
@@ -8,7 +7,7 @@
 
 namespace nbio::fs {
 class ReadAwaiter {
-   public:
+public:
     ReadAwaiter(FileReadChannel& channel, std::span<char> buffer) : channel_(channel), buffer_(buffer) {}
 
     bool await_ready() const noexcept { return false; }
@@ -26,7 +25,7 @@ class ReadAwaiter {
 
     fs::Transmission await_resume() const noexcept { return transmission_; }
 
-   private:
+private:
     FileReadChannel& channel_;
     std::span<char> buffer_;
     fs::Transmission transmission_{};

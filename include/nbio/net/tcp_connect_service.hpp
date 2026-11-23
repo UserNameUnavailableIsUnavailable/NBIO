@@ -19,7 +19,7 @@ namespace nbio::net {
 // Attached to the engine installed on this thread, which is where the connection it
 // makes will be read and written from.
 class TcpConnectService final {
-   public:
+public:
     explicit TcpConnectService(nbio::net::Address::Family family = nbio::net::Address::Family::kIPv4);
 
     TcpConnectService(const TcpConnectService&) = delete;
@@ -38,7 +38,7 @@ class TcpConnectService final {
     nbio::async::Task<utility::expected<std::shared_ptr<TcpSessionService>, std::error_code>> Connect(
         const nbio::net::Address& source, const nbio::net::Address& target);
 
-   private:
+private:
     nbio::net::Address::Family family_;
 };
 }  // namespace nbio::net

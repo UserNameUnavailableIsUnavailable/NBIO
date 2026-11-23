@@ -1,11 +1,11 @@
 #include <iostream>
 #include <memory>
 #include <nbio/async.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_listen_service.hpp>
 #include <nbio/net/socket.hpp>
+#include <nbio/net/tcp_listen_service.hpp>
+#include <nbio/runtime/daemon.hpp>
 
 using namespace nbio;
 
@@ -30,7 +30,7 @@ nbio::async::Task<void> Service() {
         // parameter (parameters are moved into the frame at call time).
         nbio::async::Spawn([](std::shared_ptr<nbio::net::TcpSessionService> session) -> nbio::async::Task<void> {
             char buffer[1024];
-            std::size_t size{ 0 };
+            std::size_t size{0};
             while (true) {
                 {
                     auto res = co_await session->Receive(std::span(buffer, sizeof(buffer)));
@@ -43,7 +43,8 @@ nbio::async::Task<void> Service() {
                         co_return;
                     }
                     size = *res;
-                    std::cout << "[conn] received " << size << " bytes: " << std::string_view(buffer, size) << std::endl;
+                    std::cout << "[conn] received " << size << " bytes: " << std::string_view(buffer, size)
+                              << std::endl;
                 }
                 {
                     auto res = co_await session->Send(buffer);
@@ -55,7 +56,7 @@ nbio::async::Task<void> Service() {
                         std::cout << "[conn] peer closed\n";
                         co_return;
                     }
-                    
+
                     std::cout << "[conn] sent " << size << " bytes: " << std::string_view(buffer, size) << std::endl;
                 }
             }

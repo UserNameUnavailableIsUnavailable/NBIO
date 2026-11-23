@@ -2,9 +2,9 @@
 
 #include <atomic>
 #include <cstddef>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/net/tcp_connector.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/utility/expected.hpp>
 #include <span>
 #include <system_error>
@@ -30,7 +30,7 @@ namespace nbio::net {
 // with that shared_ptr's control block: whoever holds the pointer is the owner, and
 // nothing here needs a way back to itself.
 class TcpSessionService final {
-   public:
+public:
     // Attached to the engine installed on this thread, which is where the connection
     // it is given will be read and written from.
     explicit TcpSessionService(nbio::net::TcpConnector connector);
@@ -61,7 +61,7 @@ class TcpSessionService final {
 
     const nbio::net::TcpConnector& connector() const noexcept { return connector_; }
 
-   private:
+private:
     nbio::net::TcpConnector connector_;
     TcpReceiveChannel receive_channel_;
     TcpSendChannel send_channel_;

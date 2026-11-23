@@ -2,15 +2,15 @@
 
 #include <cstdint>
 #include <nbio/net/address.hpp>
-#include <nbio/net/tcp_connector.hpp>
 #include <nbio/net/socket.hpp>
+#include <nbio/net/tcp_connector.hpp>
 #include <nbio/utility/expected.hpp>
 #include <system_error>
 #include <utility>
 
 namespace nbio::net {
 class TcpListener final : public Socket {
-   public:
+public:
     explicit TcpListener(Address::Family family = Address::Family::kIPv4);
 
     TcpListener(const TcpListener&) = delete;

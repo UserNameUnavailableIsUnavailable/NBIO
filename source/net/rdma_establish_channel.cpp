@@ -7,7 +7,7 @@
 namespace nbio::net {
 namespace detail {
 class RdmaEstablishAwaiter {
-   public:
+public:
     explicit RdmaEstablishAwaiter(RdmaEstablishChannel& channel) : channel_(channel) {}
 
     bool await_ready() const noexcept { return false; }
@@ -39,7 +39,7 @@ class RdmaEstablishAwaiter {
         return {};
     }
 
-   private:
+private:
     RdmaEstablishChannel& channel_;
 };
 }  // namespace detail

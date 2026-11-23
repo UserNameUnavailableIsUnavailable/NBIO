@@ -20,7 +20,7 @@ namespace nbio::utility {
 // chunk is therefore a promise that nothing still refers to it, so drain
 // completions before returning one.
 class BitmapMemory {
-   public:
+public:
     static constexpr std::size_t kAlignment = 4096;
 
     static constexpr std::uint32_t kInvalidIndex = std::numeric_limits<std::uint32_t>::max();
@@ -71,7 +71,7 @@ class BitmapMemory {
 
     const char* storage() const noexcept { return storage_.get(); }
 
-   private:
+private:
     struct AlignedDeleter {
         void operator()(char* pointer) const noexcept { ::operator delete(pointer, std::align_val_t{kAlignment}); }
     };

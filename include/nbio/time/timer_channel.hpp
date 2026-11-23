@@ -15,13 +15,13 @@ namespace nbio::time {
 namespace detail {
 template <typename C>
 class PollPayload {
-   public:
+public:
     bool WantsPoll() const noexcept { return !submitted_; }
     void TakePoll() noexcept { submitted_ = true; }
     void ReleasePoll() noexcept { submitted_ = false; }
     bool Outstanding() const noexcept { return submitted_; }
 
-   private:
+private:
     bool submitted_{false};
 };
 }  // namespace detail
@@ -65,12 +65,12 @@ struct SleepAwaiter {
 class TimerChannel final : public nbio::core::Channel<TimerChannel> {
     friend struct detail::SleepAwaiter;
 
-   public:
+public:
     using Handle = time::Timer::Handle;
     using Payload = detail::PollPayload<TimerChannel>;
 
     explicit TimerChannel(nbio::time::Timer& timer, nbio::core::Multiplexer& multiplexer,
-                                nbio::async::Scheduler& scheduler);
+                          nbio::async::Scheduler& scheduler);
     ~TimerChannel() noexcept;
 
     nbio::time::Timer& timer() noexcept { return timer_; }
@@ -87,9 +87,9 @@ class TimerChannel final : public nbio::core::Channel<TimerChannel> {
         return detail::SleepAwaiter{*this, due};
     }
 
-   private:
+private:
     void Park(async::Coroutine coroutine_view, std::chrono::steady_clock::time_point due);
-    bool remove(async::Coroutine coroutine_view);
+    bool Remove(async::Coroutine coroutine_view);
 
     nbio::time::Timer& timer_;
     std::queue<async::Coroutine> immediate_queue_;  // already-timeout coroutines

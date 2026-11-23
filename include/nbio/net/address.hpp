@@ -18,7 +18,7 @@
 
 namespace nbio::net {
 class Address {
-   public:
+public:
     enum class Family { kUnspecified, kIPv4, kIPv6 };
 
     Address() noexcept = default;
@@ -47,11 +47,6 @@ class Address {
     ///@return An expected containing the Address if successful, or an error code otherwise.
     static utility::expected<Address, std::error_code> FromIPv6(std::string_view ip_str, std::uint16_t port);
 
-    [[deprecated("Use FromIPv4(ip_str, port) instead")]]
-    static Address FromV4(std::string_view ip_str, std::uint16_t port);
-    [[deprecated("Use FromIPv6(ip_str, port) instead")]]
-    static Address FromV6(std::string_view ip_str, std::uint16_t port);
-
     Family family() const noexcept;
     bool is_valid() const noexcept { return storage_.ss_family != AF_UNSPEC; }
 
@@ -78,7 +73,7 @@ class Address {
     const ::socklen_t& length() const noexcept { return length_; }
     static constexpr ::socklen_t capacity() noexcept { return sizeof(storage_); }
 
-   private:
+private:
     ::sockaddr_storage storage_{};
     ::socklen_t length_{0};
 };

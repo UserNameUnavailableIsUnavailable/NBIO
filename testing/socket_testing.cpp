@@ -5,11 +5,11 @@
 #include <limits>
 #include <memory>
 #include <nbio/async.hpp>
-#include <nbio/core/uring_multiplexer.hpp>
-#include <nbio/net/tcp_listener.hpp>
+#include <nbio/core/io_uring_multiplexer.hpp>
+#include <nbio/net/socket.hpp>
 #include <nbio/net/tcp_connect_channel.hpp>
 #include <nbio/net/tcp_connector.hpp>
-#include <nbio/net/socket.hpp>
+#include <nbio/net/tcp_listener.hpp>
 #include <nbio/runtime/daemon.hpp>
 #include <type_traits>
 #include <utility>
@@ -20,9 +20,9 @@
 
 namespace {
 using nbio::net::Address;
-using nbio::net::TcpListener;
-using nbio::net::TcpConnector;
 using nbio::net::Socket;
+using nbio::net::TcpConnector;
+using nbio::net::TcpListener;
 using namespace std::chrono_literals;
 
 template <typename T>
@@ -241,7 +241,7 @@ TEST(SocketTesting, AsyncConnectPropagatesSuccessAndRefusal) { CheckAsyncConnect
 
 #if defined(NBIO_ENABLE_IO_URING)
 TEST(SocketTesting, AsyncConnectPropagatesSuccessAndRefusalOnURing) {
-    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
+    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::IOURingMultiplexer>());
     CheckAsyncConnections();
 }
 #endif

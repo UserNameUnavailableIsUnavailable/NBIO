@@ -5,11 +5,11 @@
 namespace nbio::utility {
 template <typename F>
 class Defer {
-   public:
+public:
     explicit Defer(F&& func) : func_(std::forward<F>(func)) {}
     ~Defer() { func_(); }
 
-   private:
+private:
     F func_;
 };
 template <typename F>

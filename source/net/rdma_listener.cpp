@@ -1,9 +1,9 @@
 #if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
 
+#include <arpa/inet.h>
 #include <poll.h>
 #include <rdma/rdma_cma.h>
 
-#include <arpa/inet.h>
 #include <cerrno>
 #include <nbio/net/rdma_listener.hpp>
 #include <stdexcept>

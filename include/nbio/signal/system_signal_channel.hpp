@@ -12,13 +12,13 @@ namespace nbio::signal {
 namespace detail {
 template <typename C>
 class PollPayload {
-   public:
+public:
     bool WantsPoll() const noexcept { return !submitted_; }
     void TakePoll() noexcept { submitted_ = true; }
     void ReleasePoll() noexcept { submitted_ = false; }
     bool Outstanding() const noexcept { return submitted_; }
 
-   private:
+private:
     bool submitted_{false};
 };
 }  // namespace detail
@@ -44,7 +44,7 @@ struct SystemSignalAwaiter {
 // SystemSignal instance; this channel then resumes every coroutine waiting on this
 // engine's signal channel.
 class SystemSignalChannel final : public nbio::core::Channel<SystemSignalChannel> {
-   public:
+public:
     using Payload = detail::PollPayload<SystemSignalChannel>;
 
     SystemSignalChannel(nbio::signal::SystemSignal& Signal, nbio::core::Multiplexer& multiplexer,
@@ -64,7 +64,7 @@ class SystemSignalChannel final : public nbio::core::Channel<SystemSignalChannel
 
     SystemSignalAwaiter wait() noexcept { return SystemSignalAwaiter{*this}; }
 
-   private:
+private:
     nbio::signal::SystemSignal& signal_;
     std::list<nbio::async::Coroutine> waiters_;
     Payload payload_{};

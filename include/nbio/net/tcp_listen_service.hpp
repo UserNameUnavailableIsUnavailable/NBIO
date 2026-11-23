@@ -2,12 +2,12 @@
 
 #include <cstdint>
 #include <memory>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/net/address.hpp>
 #include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/tcp_listener.hpp>
 #include <nbio/net/tcp_session_service.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/utility/expected.hpp>
 #include <system_error>
 #include <utility>
@@ -24,7 +24,7 @@ namespace nbio::net {
 // The channel is built on the listener and keeps a reference to it, which is why the
 // listener is declared first here and why both outlive whatever is served.
 class TcpListenService final {
-   public:
+public:
     // Listens on `address`. The listener is bound here, before anything can wait on
     // it, so a service that exists is a service that can accept -- and a bind the
     // kernel refuses is a failure to start rather than one to discover later.
@@ -45,7 +45,7 @@ class TcpListenService final {
 
     const nbio::net::TcpListener& listener() const noexcept { return listener_; }
 
-   private:
+private:
     nbio::net::TcpListener listener_;
     TcpListenChannel channel_;
 };

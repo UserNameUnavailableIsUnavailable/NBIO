@@ -12,21 +12,21 @@
 #include <set>
 
 namespace nbio::core {
-class URingMultiplexer final : public Multiplexer {
-   public:
+class IOURingMultiplexer final : public Multiplexer {
+public:
     using Handle = io_uring*;
 
-    explicit URingMultiplexer(std::uint32_t submission_capacity = 8291, std::uint32_t completion_capacity = 16384);
-    URingMultiplexer(const URingMultiplexer&) = delete;
-    URingMultiplexer& operator=(const URingMultiplexer&) = delete;
-    ~URingMultiplexer() noexcept override;
+    explicit IOURingMultiplexer(std::uint32_t submission_capacity = 8291, std::uint32_t completion_capacity = 16384);
+    IOURingMultiplexer(const IOURingMultiplexer&) = delete;
+    IOURingMultiplexer& operator=(const IOURingMultiplexer&) = delete;
+    ~IOURingMultiplexer() noexcept override;
 
-    void Run() override;
-    void RunFor(std::chrono::milliseconds timeout) override;
+    void Wait() override;
+    void WaitFor(std::chrono::milliseconds timeout) override;
     void AddChannel(nbio::core::ChannelBase* channel) override;
     void DeleteChannel(nbio::core::ChannelBase* channel) noexcept override;
 
-   private:
+private:
     void RunImpl(int timeout_ms);
 
     // Turn the channel's next operation into a submission queue entry. Answers

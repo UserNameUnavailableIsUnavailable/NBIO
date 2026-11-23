@@ -26,7 +26,7 @@ class RdmaConnectChannel;
 class RdmaConnector {
     friend class RdmaConnectChannel;
 
-   public:
+public:
     /**
      * @brief Creates the id and its event channel. Nothing is connected or bound.
      *
@@ -90,7 +90,7 @@ class RdmaConnector {
     /** @brief The event channel's fd, for the multiplexer to poll. */
     int event_channel_handle() const noexcept;
 
-   private:
+private:
     // The non-blocking steps the connect channel drives through the multiplexer:
     // SubmitResolve kicks off the address resolve, AdvanceResolve processes one
     // resolution event, CompleteResolve builds the queue pair and hands it over.

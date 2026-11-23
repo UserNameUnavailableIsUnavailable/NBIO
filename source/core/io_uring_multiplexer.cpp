@@ -10,7 +10,7 @@
 #include <climits>
 #include <nbio/core/channel.hpp>
 #include <nbio/core/types.hpp>
-#include <nbio/core/uring_multiplexer.hpp>
+#include <nbio/core/io_uring_multiplexer.hpp>
 #include <nbio/fs/file_read_channel.hpp>
 #include <nbio/fs/file_stream.hpp>
 #include <nbio/fs/file_write_channel.hpp>
@@ -28,8 +28,8 @@
 #include <nbio/net/rdma_receive_channel.hpp>
 #include <nbio/net/rdma_send_channel.hpp>
 #endif
-#include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/tcp_connect_channel.hpp>
+#include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/tcp_receive_channel.hpp>
 #include <nbio/net/tcp_send_channel.hpp>
 #include <nbio/signal/system_signal_channel.hpp>
@@ -93,7 +93,7 @@ static ChannelVariant as_variant(ChannelBase* channel) {
             return static_cast<RdmaEstablishChannel*>(channel);
 #endif
     }
-    throw std::logic_error("URingMultiplexer::as_variant: unsupported channel type");
+    throw std::logic_error("IOURingMultiplexer::as_variant: unsupported channel type");
 }
 
 template <typename Visitor>
@@ -101,9 +101,9 @@ static decltype(auto) visit_channel(ChannelBase* channel, Visitor&& visitor) {
     return std::visit(std::forward<Visitor>(visitor), as_variant(channel));
 }
 
-void URingMultiplexer::Run() { RunImpl(-1); }
+void IOURingMultiplexer::Wait() { RunImpl(-1); }
 
-void URingMultiplexer::RunFor(std::chrono::milliseconds timeout) {
+void IOURingMultiplexer::WaitFor(std::chrono::milliseconds timeout) {
     auto now = std::chrono::steady_clock::now();
     const auto due = now + timeout;
     do {
@@ -114,7 +114,7 @@ void URingMultiplexer::RunFor(std::chrono::milliseconds timeout) {
     } while (now < due);
 }
 
-void URingMultiplexer::RunImpl(int timeout_ms) {
+void IOURingMultiplexer::RunImpl(int timeout_ms) {
     // 1. Give the kernel every operation that is waiting to start.
     Submit();
     // 2. wait for at least one completion (unless asked not to block).
@@ -142,13 +142,13 @@ void URingMultiplexer::RunImpl(int timeout_ms) {
     Submit();
 }
 
-void URingMultiplexer::AddChannel(nbio::core::ChannelBase* channel) {
+void IOURingMultiplexer::AddChannel(nbio::core::ChannelBase* channel) {
     // Registration is the whole of arming: the channel is asked for work until it
     // disarms.
     channels_.insert(channel);
 }
 
-void URingMultiplexer::DeleteChannel(nbio::core::ChannelBase* channel) noexcept {
+void IOURingMultiplexer::DeleteChannel(nbio::core::ChannelBase* channel) noexcept {
     // TODO: cancel or drain the channel's in-flight operation before its frame
     // goes away; until then a completion naming a deleted channel is dropped.
     channels_.erase(channel);
@@ -343,7 +343,7 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
         if (payload.size() == 0) {
             return nullptr;
         }
-        auto& message = payload.header();
+        auto& message = payload.native_header();
         io_uring_sqe* sqe = ::io_uring_get_sqe(ring);
         if (sqe == nullptr) {
             return nullptr;
@@ -355,7 +355,7 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
         if (payload.size() == 0) {
             return nullptr;
         }
-        auto& message = payload.header();
+        auto& message = payload.native_header();
         io_uring_sqe* sqe = ::io_uring_get_sqe(ring);
         if (sqe == nullptr) {
             return nullptr;
@@ -367,7 +367,7 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
         if (payload.size() == 0) {
             return nullptr;
         }
-        auto& vectors = payload.header();
+        auto& vectors = payload.native_header();
         io_uring_sqe* sqe = ::io_uring_get_sqe(ring);
         if (sqe == nullptr) {
             return nullptr;
@@ -380,7 +380,7 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
         if (payload.size() == 0) {
             return nullptr;
         }
-        auto& vectors = payload.header();
+        auto& vectors = payload.native_header();
         io_uring_sqe* sqe = ::io_uring_get_sqe(ring);
         if (sqe == nullptr) {
             return nullptr;
@@ -439,8 +439,8 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
     }
 }
 
-URingMultiplexer::URingMultiplexer(std::uint32_t submission_capacity, std::uint32_t completion_capacity)
-    : Multiplexer(MultiplexerType::kURing) {
+IOURingMultiplexer::IOURingMultiplexer(std::uint32_t submission_capacity, std::uint32_t completion_capacity)
+    : Multiplexer(MultiplexerType::kIOURing) {
     // Zero-initialised: only the fields we set may influence setup.
     io_uring_params parameters{};
     parameters.flags = IORING_SETUP_CQSIZE;
@@ -461,9 +461,9 @@ URingMultiplexer::URingMultiplexer(std::uint32_t submission_capacity, std::uint3
     }
 }
 
-URingMultiplexer::~URingMultiplexer() noexcept { ::io_uring_queue_exit(&ring_); }
+IOURingMultiplexer::~IOURingMultiplexer() noexcept { ::io_uring_queue_exit(&ring_); }
 
-bool URingMultiplexer::Prepare(nbio::core::ChannelBase* channel) {
+bool IOURingMultiplexer::Prepare(nbio::core::ChannelBase* channel) {
     // One operation per channel is with the kernel at a time.
     if (in_flight_.contains(channel)) {
         return false;
@@ -481,7 +481,7 @@ bool URingMultiplexer::Prepare(nbio::core::ChannelBase* channel) {
     return true;
 }
 
-void URingMultiplexer::Submit() {
+void IOURingMultiplexer::Submit() {
     bool handed_over = false;
     for (nbio::core::ChannelBase* channel : channels_) {
         handed_over = Prepare(channel) || handed_over;
@@ -495,7 +495,7 @@ void URingMultiplexer::Submit() {
     }
 }
 
-void URingMultiplexer::HandleCompletions() {
+void IOURingMultiplexer::HandleCompletions() {
     // A channel can have several completions in one pass -- an accept covers one
     // wait, and one wait is one operation -- so every completion is advanced first
     // and only then is each channel asked to reap what it answered. A resumed

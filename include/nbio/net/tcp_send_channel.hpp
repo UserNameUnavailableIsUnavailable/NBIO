@@ -1,7 +1,6 @@
 #pragma once
 
 #include <deque>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
@@ -12,13 +11,13 @@
 #include <system_error>
 
 namespace nbio::fs {
-    class File;
+class File;
 };
 
 namespace nbio::net {
 class SendAwaiter;
 class TcpSendChannel final : public nbio::core::Channel<TcpSendChannel> {
-   public:
+public:
     using Payload = detail::MessagePayload<TcpSendChannel>;
 
     explicit TcpSendChannel(nbio::net::TcpConnector& connector, nbio::core::Multiplexer& multiplexer,
@@ -37,7 +36,7 @@ class TcpSendChannel final : public nbio::core::Channel<TcpSendChannel> {
 
     const net::TcpConnector& connector() const noexcept { return connector_; }
 
-   private:
+private:
     friend class SendAwaiter;
 
     void Prepare(nbio::async::Coroutine waiter, net::Transmission* transmission);

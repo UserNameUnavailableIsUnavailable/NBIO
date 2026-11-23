@@ -30,8 +30,8 @@
 #include <nbio/net/rdma_send_channel.hpp>
 #endif  // defined(NBIO_ENABLE_RDMA)
 #include <nbio/core/types.hpp>
-#include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/tcp_connect_channel.hpp>
+#include <nbio/net/tcp_listen_channel.hpp>
 #include <nbio/net/tcp_receive_channel.hpp>
 #include <nbio/net/tcp_send_channel.hpp>
 #include <nbio/signal/system_signal_channel.hpp>
@@ -213,9 +213,9 @@ void EpollMultiplexer::RunImpl(int timeout_ms) {
     } while (retry);
 }
 
-void EpollMultiplexer::Run() { RunImpl(-1); }
+void EpollMultiplexer::Wait() { RunImpl(-1); }
 
-void EpollMultiplexer::RunFor(std::chrono::milliseconds timeout) {
+void EpollMultiplexer::WaitFor(std::chrono::milliseconds timeout) {
     auto now = std::chrono::steady_clock::now();
     auto due = now + timeout;
     do {
@@ -320,7 +320,7 @@ static void do_receive_data(TcpReceiveChannel* channel) {
         return;  // nothing to receive for
     }
 
-    auto& message = payload.header();
+    auto& message = payload.native_header();
     ssize_t result = 0;
     do {
         result = ::recvmsg(channel->native_handle(), &message, 0);
@@ -373,7 +373,7 @@ static void do_send_data(TcpSendChannel* channel) {
         return;  // nothing to send
     }
 
-    auto& message = payload.header();
+    auto& message = payload.native_header();
     ssize_t result = 0;
     bool retry{false};
     bool failed{false};
@@ -492,7 +492,7 @@ static void do_read_file(FileReadChannel* channel) {
         return;  // nothing to read for
     }
 
-    auto& vectors = payload.header();
+    auto& vectors = payload.native_header();
     ssize_t result = 0;
     do {
         result = ::preadv(channel->native_handle(), vectors.data(), static_cast<int>(vectors.size()),
@@ -539,7 +539,7 @@ static void do_write_file(FileWriteChannel* channel) {
         return;  // nothing to write
     }
 
-    auto& vectors = payload.header();
+    auto& vectors = payload.native_header();
     ssize_t result = 0;
     do {
         result = ::pwritev(channel->native_handle(), vectors.data(), static_cast<int>(vectors.size()),

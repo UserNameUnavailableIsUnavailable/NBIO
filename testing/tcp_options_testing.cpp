@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
-
-#include <nbio/net/tcp_listener.hpp>
-#include <nbio/net/tcp_connector.hpp>
-#include <nbio/net/socket.hpp>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+
+#include <nbio/net/socket.hpp>
+#include <nbio/net/tcp_connector.hpp>
+#include <nbio/net/tcp_listener.hpp>
 
 namespace {
 template <typename SocketType>
@@ -51,8 +51,7 @@ TEST(TcpOptionsTesting, AcceptedConnectionsInheritNoDelay) {
     ASSERT_TRUE(listener.Bind(nbio::net::Address::FromV4("127.0.0.1", 0)));
     sockaddr_in local{};
     socklen_t size = sizeof(local);
-    ASSERT_EQ(::getsockname(static_cast<int>(listener.native_handle()), reinterpret_cast<sockaddr*>(&local), &size),
-              0);
+    ASSERT_EQ(::getsockname(static_cast<int>(listener.native_handle()), reinterpret_cast<sockaddr*>(&local), &size), 0);
     const auto address = nbio::net::Address::FromV4("127.0.0.1", ntohs(local.sin_port));
     for (const bool enabled : {true, false}) {
         ASSERT_TRUE(listener.ToggleNoDelay(enabled));

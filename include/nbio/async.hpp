@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <exception>
 #include <memory>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -22,10 +22,8 @@ inline Task<void> GuardException(Task<void> main, std::exception_ptr& exception)
         exception = std::current_exception();
     }
 }
-inline ::nbio::async::Scheduler& scheduler() {
-    return ::nbio::runtime::Daemon::scheduler();
-}
-} // namespace detail
+inline ::nbio::async::Scheduler& scheduler() { return ::nbio::runtime::Daemon::scheduler(); }
+}  // namespace detail
 
 inline void Run(Task<void> main) {
     std::exception_ptr error;
@@ -239,7 +237,8 @@ Task<std::tuple<detail::WhenValue<Ts>...>> WhenAll(Task<Ts>... tasks) {
 }
 
 // Awaits all tasks concurrently; resumes as soon as the FIRST finishes and
-// returns its result as a variant (void -> std::monostate). The remaining tasks are cancelled. If the winner threw, that exception is rethrown.
+// returns its result as a variant (void -> std::monostate). The remaining tasks are cancelled. If the winner threw,
+// that exception is rethrown.
 template <typename... Ts>
 Task<std::variant<detail::WhenValue<Ts>...>> WhenAny(Task<Ts>... tasks) {
     static_assert(sizeof...(Ts) > 0, "WhenAny requires at least one task");

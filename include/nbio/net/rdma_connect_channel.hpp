@@ -18,7 +18,7 @@ namespace nbio::net {
  *        communication.
  */
 class RdmaConnectChannel final : public nbio::core::Channel<RdmaConnectChannel> {
-   public:
+public:
     using Handle = int;
     using Payload = detail::PollPayload<RdmaConnectChannel>;
 
@@ -49,7 +49,7 @@ class RdmaConnectChannel final : public nbio::core::Channel<RdmaConnectChannel> 
     // the multiplexer wakes this channel for.
     RdmaResult<void> SubmitResolve(const net::Address& target) noexcept;
 
-   private:
+private:
     nbio::net::RdmaConnector& connector_;
     PendingConnect job_{};
     nbio::async::Coroutine waiter_{};

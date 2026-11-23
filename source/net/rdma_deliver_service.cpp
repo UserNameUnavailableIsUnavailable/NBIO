@@ -78,8 +78,9 @@ RdmaDeliverService::RdmaDeliverService(std::shared_ptr<RdmaSessionService> sessi
     for (std::uint64_t index = 0; index < mine_.chunk_count; ++index) {
         receive_slots_.push_back(receive_region.subspan(static_cast<std::size_t>(index) * chunk_size, chunk_size));
     }
-    const std::size_t send_slot_count = std::min(send_region.size() / chunk_size,
-                                                 static_cast<std::size_t>(session_->communication().options().send_queue_depth));
+    const std::size_t send_slot_count =
+        std::min(send_region.size() / chunk_size,
+                 static_cast<std::size_t>(session_->communication().options().send_queue_depth));
     send_slots_.reserve(send_slot_count);
     for (std::size_t index = 0; index < send_slot_count; ++index) {
         send_slots_.push_back(send_region.subspan(index * chunk_size, chunk_size));
@@ -149,9 +150,7 @@ nbio::async::Task<RdmaResult<void>> RdmaDeliverService::handshake() {
     co_return RdmaResult<void>{};
 }
 
-void RdmaDeliverService::Start() {
-    reader_ = nbio::async::Spawn(Read(shared_from_this()));
-}
+void RdmaDeliverService::Start() { reader_ = nbio::async::Spawn(Read(shared_from_this())); }
 
 nbio::async::Task<void> RdmaDeliverService::Read(std::shared_ptr<RdmaDeliverService> self) {
     while (!self->ended_) {
@@ -306,7 +305,8 @@ nbio::async::Task<RdmaResult<void>> RdmaDeliverService::release(std::span<char> 
     released_ = std::max(released_, held.sequence);
 
     if (released_ > acknowledged_to_peer_ && released_ - acknowledged_to_peer_ >= AckEvery(mine_.chunk_count)) {
-        if (auto sent = co_await SendPacket(std::span<const char>{}, nbio::net::RdmaPacketType::kAck); !sent) [[unlikely]] {
+        if (auto sent = co_await SendPacket(std::span<const char>{}, nbio::net::RdmaPacketType::kAck); !sent)
+            [[unlikely]] {
             co_return nbio::utility::unexpected(sent.error());
         }
     }

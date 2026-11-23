@@ -41,7 +41,7 @@ enum class RdmaErrc {
  * @brief The error category behind @ref RdmaErrc.
  */
 class RdmaErrorCategory final : public std::error_category {
-   public:
+public:
     const char* name() const noexcept override { return "nbio.rdma"; }
 
     std::string message(int value) const override {
@@ -107,7 +107,7 @@ using RdmaResult = utility::expected<T, std::error_code>;
  * length is the one that was posted rather than one read from the completion.
  */
 struct RdmaSendResult {
-    RdmaSeq seq{0};          ///< The sequence number of the request.
+    RdmaSeq seq{0};            ///< The sequence number of the request.
     std::span<char> buffer{};  ///< The buffer as posted; it is the caller's again.
 };
 

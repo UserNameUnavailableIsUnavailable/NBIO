@@ -17,18 +17,18 @@
 #include <iterator>
 #include <memory>
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/core/types.hpp>
 #include <nbio/fs/file.hpp>
 #include <nbio/fs/file_stream.hpp>
 #include <nbio/fs/file_stream_service.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <random>
 #include <span>
 #include <string>
 #include <vector>
 
 #include "nbio/async.hpp"
-#include "nbio/core/uring_multiplexer.hpp"
+#include "nbio/core/io_uring_multiplexer.hpp"
 
 namespace {
 constexpr std::size_t kWriters = 8;
@@ -143,6 +143,6 @@ TEST(FileWriteChannelTesting, WritesFromManyCoroutinesAllLand) { many_writers_on
 // The completion backend batches the same writes, in one submission rather than
 // one system call each. This is the engine the server runs on.
 TEST(FileWriteChannelTesting, WritesFromManyCoroutinesAllLandOnURing) {
-    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
+    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::IOURingMultiplexer>());
     many_writers_one_file();
 }

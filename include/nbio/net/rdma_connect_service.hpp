@@ -13,7 +13,7 @@ namespace nbio::net {
  *        that resolves the destination and returns the prepared communication.
  */
 class RdmaConnectService {
-   public:
+public:
     RdmaConnectService(RdmaResource& resource, const net::Address& address);
 
     RdmaConnectService(const RdmaConnectService&) = delete;
@@ -27,7 +27,7 @@ class RdmaConnectService {
     /** @brief Resolves and returns the prepared communication, not connected. */
     nbio::async::Task<RdmaResult<RdmaCommunication>> Connect();
 
-   private:
+private:
     RdmaConnector connector_;
     net::Address address_;
     RdmaConnectChannel connect_channel_;

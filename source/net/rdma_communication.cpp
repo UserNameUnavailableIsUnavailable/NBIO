@@ -55,9 +55,9 @@ bool Contains(std::span<const char> region, std::span<const char> chunk) noexcep
 }
 
 bool IsEstablishFailure(::rdma_cm_event_type type) noexcept {
-    return type == RDMA_CM_EVENT_REJECTED || type == RDMA_CM_EVENT_UNREACHABLE ||
-           type == RDMA_CM_EVENT_CONNECT_ERROR || type == RDMA_CM_EVENT_ADDR_ERROR ||
-           type == RDMA_CM_EVENT_ROUTE_ERROR || type == RDMA_CM_EVENT_DEVICE_REMOVAL;
+    return type == RDMA_CM_EVENT_REJECTED || type == RDMA_CM_EVENT_UNREACHABLE || type == RDMA_CM_EVENT_CONNECT_ERROR ||
+           type == RDMA_CM_EVENT_ADDR_ERROR || type == RDMA_CM_EVENT_ROUTE_ERROR ||
+           type == RDMA_CM_EVENT_DEVICE_REMOVAL;
 }
 }  // namespace
 
@@ -130,7 +130,8 @@ void RdmaCommunication::BuildQueuePair() {
         send_completion_channel_ = ::ibv_create_comp_channel(communication_id_->verbs);
         if (!send_completion_channel_) throw std::runtime_error("Failed to create the rdma send completion channel");
         receive_completion_channel_ = ::ibv_create_comp_channel(communication_id_->verbs);
-        if (!receive_completion_channel_) throw std::runtime_error("Failed to create the rdma receive completion channel");
+        if (!receive_completion_channel_)
+            throw std::runtime_error("Failed to create the rdma receive completion channel");
         for (auto* channel : {send_completion_channel_, receive_completion_channel_}) {
             const int flags = ::fcntl(channel->fd, F_GETFL, 0);
             if (flags < 0 || ::fcntl(channel->fd, F_SETFL, flags | O_NONBLOCK) < 0) {
@@ -141,9 +142,9 @@ void RdmaCommunication::BuildQueuePair() {
         send_completion_queue_ = ::ibv_create_cq(communication_id_->verbs, static_cast<int>(options_.send_queue_depth),
                                                  nullptr, send_completion_channel_, 0);
         if (!send_completion_queue_) throw std::runtime_error("Failed to create the rdma send completion queue");
-        receive_completion_queue_ = ::ibv_create_cq(communication_id_->verbs,
-                                                    static_cast<int>(options_.receive_queue_depth), nullptr,
-                                                    receive_completion_channel_, 0);
+        receive_completion_queue_ =
+            ::ibv_create_cq(communication_id_->verbs, static_cast<int>(options_.receive_queue_depth), nullptr,
+                            receive_completion_channel_, 0);
         if (!receive_completion_queue_) throw std::runtime_error("Failed to create the rdma receive completion queue");
 
         ibv_qp_init_attr attributes{
@@ -244,7 +245,8 @@ void RdmaCommunication::DrainCompletionQueue(::ibv_cq* queue) noexcept {
     ibv_wc completions[16];
     while (::ibv_poll_cq(queue, 16, completions) > 0) {
     }
-    ::ibv_comp_channel* channel = queue == send_completion_queue_ ? send_completion_channel_ : receive_completion_channel_;
+    ::ibv_comp_channel* channel =
+        queue == send_completion_queue_ ? send_completion_channel_ : receive_completion_channel_;
     if (channel) {
         ::ibv_cq* notified{nullptr};
         void* context{nullptr};
@@ -362,10 +364,8 @@ RdmaResult<RdmaSeq> RdmaCommunication::SubmitReceive(std::span<char> buffer) noe
 
     const RdmaSeq seq = receive_ring_.Next();
     detail::RdmaSlot& slot = receive_ring_.At(seq);
-    slot = detail::RdmaSlot{.seq = seq,
-                            .address = buffer.data(),
-                            .length = static_cast<std::uint32_t>(buffer.size()),
-                            .in_flight = true};
+    slot = detail::RdmaSlot{
+        .seq = seq, .address = buffer.data(), .length = static_cast<std::uint32_t>(buffer.size()), .in_flight = true};
 
     ibv_sge segment{.addr = reinterpret_cast<std::uintptr_t>(buffer.data()),
                     .length = static_cast<std::uint32_t>(buffer.size()),
@@ -427,7 +427,8 @@ RdmaResult<RdmaSendResult> RdmaCommunication::PeekSend(RdmaSeq seq) noexcept {
 }
 
 RdmaResult<RdmaReceiveResult> RdmaCommunication::PeekReceive(RdmaSeq seq) noexcept {
-    if (seq == 0 || seq >= receive_ring_.Next()) return utility::unexpected(make_error_code(RdmaErrc::kInvalidSequence));
+    if (seq == 0 || seq >= receive_ring_.Next())
+        return utility::unexpected(make_error_code(RdmaErrc::kInvalidSequence));
     const detail::RdmaSlot& slot = receive_ring_.At(seq);
     if (slot.seq != seq || slot.dropped) return utility::unexpected(make_error_code(RdmaErrc::kInvalidSequence));
     if (!slot.completed) return utility::unexpected(make_error_code(RdmaErrc::kNotReady));

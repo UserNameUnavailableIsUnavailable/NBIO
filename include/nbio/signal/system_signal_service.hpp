@@ -1,7 +1,7 @@
 #pragma once
 
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/time/timer_service.hpp>
 
 namespace nbio::signal {
@@ -18,7 +18,7 @@ namespace nbio::signal {
 // because a Daemon that intercepts SIGINT the moment somebody declares a service
 // would be a nasty thing to find in a program that handles its own signals.
 class SystemSignalService final {
-   public:
+public:
     SystemSignalService() noexcept = default;
 
     // Suspends until a Signal is delivered, and installs the handlers if this is the
