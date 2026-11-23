@@ -18,7 +18,7 @@ namespace nbio::net {
  * sequence to be reaped parks the coroutine on the send completion channel.
  */
 class RdmaSendChannel final : public nbio::core::Channel<RdmaSendChannel> {
-   public:
+public:
     using Handle = int;
     using Payload = detail::PollPayload<RdmaSendChannel>;
 
@@ -45,7 +45,7 @@ class RdmaSendChannel final : public nbio::core::Channel<RdmaSendChannel> {
     const PendingSend& job() const noexcept { return job_; }
     nbio::net::RdmaCommunication& communication() noexcept { return communication_; }
 
-   private:
+private:
     nbio::net::RdmaCommunication& communication_;
     PendingSend job_{};
     nbio::async::Coroutine waiter_{};

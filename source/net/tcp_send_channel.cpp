@@ -1,14 +1,13 @@
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
-#include <nbio/net/tcp_send_channel.hpp>
 #include <nbio/net/socket.hpp>
+#include <nbio/net/tcp_send_channel.hpp>
 #include <span>
 #include <stdexcept>
 #include <utility>
 
 namespace nbio::net {
 class SendAwaiter {
-   public:
+public:
     SendAwaiter(TcpSendChannel& channel, std::span<const char> buffer) : channel_(channel), buffer_(buffer) {}
 
     SendAwaiter(const SendAwaiter&) = delete;
@@ -34,7 +33,7 @@ class SendAwaiter {
 
     net::Transmission await_resume() noexcept { return transmission_; }
 
-   private:
+private:
     TcpSendChannel& channel_;
     std::span<const char> buffer_;
     net::Transmission transmission_{};
@@ -66,7 +65,7 @@ TcpSendChannel::Payload& TcpSendChannel::Submit() { return payload_; }
 
 void TcpSendChannel::Complete() {
     auto& payload = payload_;
-    while (auto completion = payload.next_completion()) {
+    while (auto completion = payload.NextCompletion()) {
         auto waiter = std::move(waiters_.front());
         waiters_.pop_front();
         scheduler_.Submit(std::move(waiter));

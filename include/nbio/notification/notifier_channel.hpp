@@ -14,13 +14,13 @@ namespace nbio::notification {
 namespace detail {
 template <typename C>
 class PollPayload {
-   public:
+public:
     bool WantsPoll() const noexcept { return !submitted_; }
     void TakePoll() noexcept { submitted_ = true; }
     void ReleasePoll() noexcept { submitted_ = false; }
     bool outstanding() const noexcept { return submitted_; }
 
-   private:
+private:
     bool submitted_{false};
 };
 }  // namespace detail
@@ -28,11 +28,11 @@ class PollPayload {
 class NotifierChannel;
 
 class NotifierChannel final : public nbio::core::Channel<NotifierChannel> {
-   public:
+public:
     using Payload = detail::PollPayload<NotifierChannel>;
 
     NotifierChannel(nbio::notification::Notifier& notifier, nbio::core::Multiplexer& multiplexer,
-                       nbio::async::Scheduler& scheduler);
+                    nbio::async::Scheduler& scheduler);
     ~NotifierChannel() noexcept;
 
     // The operation this channel wants from the backend is a one-shot poll; the
@@ -57,7 +57,7 @@ class NotifierChannel final : public nbio::core::Channel<NotifierChannel> {
 
     const nbio::notification::Notifier& notifier() const noexcept { return notifier_; }
 
-   private:
+private:
     nbio::notification::Notifier& notifier_;
     std::mutex mutex_;
     std::vector<nbio::async::Coroutine> notifiees_;

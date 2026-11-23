@@ -11,15 +11,51 @@
 
 namespace nbio::time {
 Timer::Timer() {
-    handle_ = ::CreateWaitableTimerW(nullptr, true, nullptr);
-    if (!handle_) {
-        std::error_code e(GetLastError(), std::system_category());
-
-        throw std::runtime_error(std::format("::CreateWaitableTimerW() failed: {}", e.message()));
+    auto handle = ::CreateWaitableTimerW(nullptr, TRUE, nullptr);
+    if (!handle) {
+        throw std::system_error(GetLastError(), std::system_category(), "CreateWaitableTimerW");
     }
+    handle_ = reinterpret_cast<std::uintptr_t>(handle);
 }
 
-Timer::~Timer() noexcept { CloseHandle(handle_); }
+Timer::~Timer() noexcept { ::CloseHandle(reinterpret_cast<HANDLE>(handle_)); }
+
+void Timer::NonBlocking(bool enabled) { non_blocking_ = enabled; }
+
+void Timer::FireAfter(std::chrono::nanoseconds duration) {
+    using Tick = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
+    const auto ticks = std::chrono::ceil<Tick>(duration).count();
+    LARGE_INTEGER due{};
+    due.QuadPart = -(ticks > 0 ? ticks : 1);
+    if (!::SetWaitableTimer(reinterpret_cast<HANDLE>(handle_), &due, 0, nullptr, nullptr, FALSE)) {
+        throw std::system_error(GetLastError(), std::system_category(), "SetWaitableTimer");
+    }
+    active_ = true;
+}
+
+void Timer::fire_at(Timepoint timepoint) { fire_after(timepoint - Clock::now()); }
+
+void Timer::cancel() {
+    if (!::CancelWaitableTimer(reinterpret_cast<HANDLE>(handle_))) {
+        throw std::system_error(GetLastError(), std::system_category(), "CancelWaitableTimer");
+    }
+    active_ = false;
+}
+
+utility::expected<void, std::error_code> Timer::wait() {
+    if (!active_) {
+        return utility::unexpected(std::make_error_code(std::errc::operation_would_block));
+    }
+    const auto result = ::WaitForSingleObject(reinterpret_cast<HANDLE>(handle_), non_blocking_ ? 0 : INFINITE);
+    if (result == WAIT_OBJECT_0) {
+        active_ = false;
+        return {};
+    }
+    if (result == WAIT_TIMEOUT) {
+        return utility::unexpected(std::make_error_code(std::errc::operation_would_block));
+    }
+    return utility::unexpected(std::error_code(GetLastError(), std::system_category()));
+}
 }  // namespace nbio::time
 #endif
 

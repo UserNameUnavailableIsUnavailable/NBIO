@@ -9,7 +9,7 @@ template <typename Header, typename PayloadUnit>
     requires std::is_trivially_destructible_v<Header> && std::is_trivially_destructible_v<PayloadUnit> &&
              (sizeof(Header) % alignof(PayloadUnit) == 0)
 class PacketView {
-   public:
+public:
     PacketView(void* raw, std::size_t size_in_bytes) : raw_(raw), size_in_bytes_(size_in_bytes) {
         if (size_in_bytes_ < sizeof(Header)) [[unlikely]] {
             throw std::logic_error("the raw memory chunk is insufficient to contain a header");
@@ -39,7 +39,7 @@ class PacketView {
         return {base, (size_in_bytes_ - sizeof(Header)) / sizeof(PayloadUnit)};
     }
 
-   private:
+private:
     void* raw_;
     std::size_t size_in_bytes_;
 };

@@ -85,7 +85,7 @@ std::unique_ptr<nbio::core::Multiplexer> MakeMultiplexer(const std::string& name
         return std::make_unique<nbio::core::EpollMultiplexer>();
     }
     if (name == "io_uring") {
-        return std::make_unique<nbio::core::URingMultiplexer>();
+        return std::make_unique<nbio::core::IOURingMultiplexer>();
     }
     throw std::invalid_argument("--multiplexer must be 'epoll' or 'io_uring'");
 }
@@ -160,8 +160,8 @@ nbio::async::Task<void> ServerBenchmark(nbio::net::RdmaListenService& listener,
     for (std::size_t index = 0; index < messages; ++index) {
         auto payload = co_await ReceiveOne(*service);
         if (!payload) [[unlikely]] {
-            outcome.failure = "payload receive failed after " + std::to_string(index) + " messages: " +
-                              payload.error().message();
+            outcome.failure =
+                "payload receive failed after " + std::to_string(index) + " messages: " + payload.error().message();
             co_return;
         }
         if ((*payload).size() != message_bytes) [[unlikely]] {
@@ -243,8 +243,8 @@ nbio::async::Task<void> ClientBenchmark(nbio::net::RdmaConnectService& connector
     for (std::size_t index = 0; index < messages; ++index) {
         if (auto posted = co_await service->Send(payload); !posted) [[unlikely]]
         {
-            outcome.failure = "payload send failed after " + std::to_string(index) + " messages: " +
-                              posted.error().message();
+            outcome.failure =
+                "payload send failed after " + std::to_string(index) + " messages: " + posted.error().message();
             co_return;
         }
     }
@@ -398,16 +398,14 @@ int main(int argc, char* argv[]) {
             [&] {
                 nbio::net::RdmaConnectService connector(resources, *peer);
                 if (local_ip.empty()) {
-                    nbio::async::Run(
-                        ClientBenchmark(connector, nullptr, layout, message_bytes, messages, outcome));
+                    nbio::async::Run(ClientBenchmark(connector, nullptr, layout, message_bytes, messages, outcome));
                 } else {
                     const auto source = nbio::net::Address::FromIPv4(local_ip, 0);
                     if (!source) {
                         outcome.failure = "invalid local address: " + source.error().message();
                         return;
                     }
-                    nbio::async::Run(
-                        ClientBenchmark(connector, &*source, layout, message_bytes, messages, outcome));
+                    nbio::async::Run(ClientBenchmark(connector, &*source, layout, message_bytes, messages, outcome));
                 }
             },
             multiplexer, outcome);

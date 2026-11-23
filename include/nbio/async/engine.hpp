@@ -15,7 +15,7 @@
 
 namespace nbio::runtime::Daemon {
 class Engine {
-   public:
+public:
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
     Engine(Engine&&) = delete;
@@ -35,7 +35,7 @@ class Engine {
 
     // ---- what nbio::async asks of a Daemon tag ----
     static nbio::async::Scheduler& scheduler();
-    static Multiplexer& multiplexer();
+    static nbio::core::Multiplexer& multiplexer();
 
     // The channel carrying application-generated events. ConditionVariable
     // binds to it, so an application event travels the same path as a kernel
@@ -49,12 +49,12 @@ class Engine {
     // SIGTERM, which must only happen if the application asks for it.
     static signal::SystemSignalChannel& signal_channel();
 
-   private:
-    explicit Engine(std::unique_ptr<Multiplexer> multiplexer);
+private:
+    explicit Engine(std::unique_ptr<nbio::core::Multiplexer> multiplexer);
 
-    static std::function<void(bool)> make_idle_hook(Multiplexer& multiplexer);
+    static std::function<void(bool)> make_idle_hook(nbio::core::Multiplexer& multiplexer);
 
-    std::unique_ptr<Multiplexer> multiplexer_;
+    std::unique_ptr<nbio::core::Multiplexer> multiplexer_;
     nbio::async::Scheduler scheduler_;
     nbio::core::Timer timer_;
     time::TimerChannel timer_channel_;
@@ -67,5 +67,5 @@ class Engine {
 };
 
 // Creates the platform default backend
-std::unique_ptr<Multiplexer> make_default_multiplexer();
+std::unique_ptr<nbio::core::Multiplexer> make_default_multiplexer();
 }  // namespace nbio::runtime::Daemon

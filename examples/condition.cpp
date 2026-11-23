@@ -3,10 +3,10 @@
 #include <future>
 #include <iostream>
 #include <nbio/async.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
-#include <nbio/core/uring_multiplexer.hpp>
+#include <nbio/core/io_uring_multiplexer.hpp>
 #include <nbio/notification/condition_variable.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <thread>
 
 std::atomic_bool ok{false};
@@ -19,7 +19,7 @@ nbio::async::Task<void> wait_condition(nbio::notification::ConditionVariable& cv
 }
 
 int main() {
-    auto multiplexer = std::make_unique<nbio::core::URingMultiplexer>();
+    auto multiplexer = std::make_unique<nbio::core::IOURingMultiplexer>();
     nbio::runtime::Daemon::Initialize(std::move(multiplexer));
     nbio::notification::ConditionVariable condition;
     std::future<void> task = std::async([&condition] {

@@ -6,8 +6,8 @@
 #include <deque>
 #include <mutex>
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <utility>
 
 #include "notifier_channel.hpp"
@@ -40,7 +40,7 @@ struct ConditionVariableAwaiter {
 };
 
 class ConditionVariable {
-   public:
+public:
     ConditionVariable();
     ~ConditionVariable() noexcept;
 
@@ -58,7 +58,7 @@ class ConditionVariable {
     template <typename Predicate>
     nbio::async::Task<void> wait(Predicate predicate);
 
-   private:
+private:
     template <typename Predicate>
     friend struct ConditionVariableAwaiter;
 

@@ -6,7 +6,7 @@
 
 namespace nbio::notification {
 class Notifier {
-   public:
+public:
     Notifier();
     ~Notifier() noexcept;
 
@@ -20,7 +20,7 @@ class Notifier {
     void Notify();
     utility::expected<void, std::error_code> Wait();
 
-   private:
+private:
     std::uintptr_t handle_;
 };
 }  // namespace nbio::notification

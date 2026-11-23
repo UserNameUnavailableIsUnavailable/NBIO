@@ -18,9 +18,13 @@
 #error "Unsupported platform"
 #endif
 
+namespace nbio::core {
+class IOCPMultiplexer;
+}
+
 namespace nbio::net {
 class Socket {
-   public:
+public:
     constexpr static std::uintptr_t kInvalidHandle{static_cast<std::uintptr_t>(-1)};
 
     enum class Type {
@@ -43,9 +47,9 @@ class Socket {
     Socket(Address::Family family, Type type, Protocol protocol = Protocol::kDefault);
     Socket(const Socket&) = delete;
     Socket& operator=(const Socket&) = delete;
-    Socket(Socket&& other) noexcept { std::swap(handle_, other.handle_); }
+    Socket(Socket&& other) noexcept { swap(other); }
     Socket& operator=(Socket&& other) noexcept {
-        std::swap(handle_, other.handle_);
+        swap(other);
         return *this;
     }
     ~Socket() noexcept { Close(); }
@@ -53,7 +57,12 @@ class Socket {
     [[nodiscard]] static Socket Adopt(std::uintptr_t handle) noexcept;
 
     std::uintptr_t native_handle() const noexcept { return handle_; }
-    void swap(Socket& other) noexcept { std::swap(handle_, other.handle_); }
+    void swap(Socket& other) noexcept {
+        std::swap(handle_, other.handle_);
+#if defined(_WIN32)
+        std::swap(completion_port_, other.completion_port_);
+#endif
+    }
     bool is_valid() const noexcept { return handle_ != kInvalidHandle; }
 
     utility::expected<void, std::error_code> Bind(const Address& local) noexcept;
@@ -119,12 +128,16 @@ class Socket {
     void Shutdown(ShutdownHow how = ShutdownHow::kBoth) noexcept;
     void Close() noexcept;
 
-   private:
+private:
+    friend class core::IOCPMultiplexer;
+#if defined(_WIN32)
+    std::uintptr_t completion_port_{};
+#endif
     template <typename T>
     std::error_code SetNativeOption(int level, int option, const T& value) noexcept;
     template <typename T>
     utility::expected<T, std::error_code> GetNativeOption(int level, int option) const noexcept;
     static std::error_code last_error() noexcept;
-    std::uintptr_t handle_{ kInvalidHandle };
+    std::uintptr_t handle_{kInvalidHandle};
 };
 }  // namespace nbio::net

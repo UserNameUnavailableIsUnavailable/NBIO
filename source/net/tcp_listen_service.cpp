@@ -1,7 +1,7 @@
 #include <memory>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/net/tcp_listen_service.hpp>
 #include <nbio/net/tcp_session_service.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <stdexcept>
 #include <system_error>
 #include <utility>

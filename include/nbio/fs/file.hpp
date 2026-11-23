@@ -30,7 +30,7 @@ constexpr FileMode& operator|=(FileMode& lhs, FileMode rhs) noexcept {
 }
 
 class File {
-   public:
+public:
     // What a file this creates is created with. Named with the standard library's
     // permission type so that no native mode appears in a header; the one place the
     // native mode is wanted -- the open() that creates the file -- spells it out.
@@ -57,7 +57,7 @@ class File {
 
     static int NativeFlagsFor(FileMode mode);
 
-   private:
+private:
     std::uintptr_t OpenFile(const std::filesystem::path& path, FileMode mode, std::filesystem::perms permissions);
     void Close() noexcept;
 

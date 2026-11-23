@@ -1,8 +1,9 @@
 #pragma once
+#if defined(__linux__) && defined(NBIO_ENABLE_RDMA)
+#include <infiniband/verbs.h>
 
 #include <cstddef>
 #include <cstdint>
-#include <infiniband/verbs.h>
 #include <memory>
 #include <span>
 #include <string>
@@ -30,7 +31,7 @@ namespace nbio::net {
  * This class is designed to be used in a single thread.
  */
 class RdmaResource {
-   public:
+public:
     /**
      * @brief Opens a device and registers the two caller-provided regions.
      *
@@ -136,7 +137,7 @@ class RdmaResource {
      */
     static std::size_t page_size() noexcept;
 
-   private:
+private:
     struct ProtectionDomainDeleter {
         void operator()(::ibv_pd* pd) const noexcept {
             if (pd) {
@@ -156,7 +157,7 @@ class RdmaResource {
     // members rather than free functions: the deleter type is private.
     static ::ibv_context* FindDevice(std::string_view device_name);
     static std::unique_ptr<::ibv_pd, ProtectionDomainDeleter> AllocateProtectionDomain(::ibv_context* context,
-                                                                                      std::string_view device_name);
+                                                                                       std::string_view device_name);
 
     // Borrowed from the communication manager, never closed here: it is the
     // context every id on this device carries, so it is the one the queue pairs
@@ -170,3 +171,5 @@ class RdmaResource {
     std::unique_ptr<::ibv_mr, MemoryRegionDeleter> receive_memory_region_;
 };
 }  // namespace nbio::net
+
+#endif  // defined(__linux__) && defined(NBIO_ENABLE_RDMA)

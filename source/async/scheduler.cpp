@@ -5,9 +5,7 @@
 #include <utility>
 
 namespace nbio::async {
-void Scheduler::Submit(Coroutine pending) {
-    ready_.push_back(std::move(pending));
-}
+void Scheduler::Submit(Coroutine pending) { ready_.push_back(std::move(pending)); }
 
 void Scheduler::Run() {
     bool expected{false};
@@ -29,7 +27,8 @@ void Scheduler::Run() {
     std::swap(reclaimed_, trash);
     for (const std::shared_ptr<CoroutineControlBlock>& block : trash) {
         if (block->join && block->join_status != nullptr) {
-            *block->join_status = block->is_cancelled() ? CoroutineJoinStatus::kCancelled : CoroutineJoinStatus::kCompleted;
+            *block->join_status =
+                block->is_cancelled() ? CoroutineJoinStatus::kCancelled : CoroutineJoinStatus::kCompleted;
             Submit(std::move(block->join));
         }
     }

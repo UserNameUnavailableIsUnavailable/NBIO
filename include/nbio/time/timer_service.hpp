@@ -1,12 +1,12 @@
 #pragma once
 
 #include <chrono>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/task.hpp>
+#include <nbio/runtime/daemon.hpp>
 
 namespace nbio::time {
 class SystemTimeService final {
-   public:
+public:
     SystemTimeService() noexcept = default;
 
     nbio::async::Task<void> Sleep(std::chrono::steady_clock::duration duration) const {
@@ -15,7 +15,7 @@ class SystemTimeService final {
 
     nbio::async::Task<void> Sleep(std::chrono::steady_clock::time_point point) const { return SleepUntil(point); }
 
-   private:
+private:
     static nbio::async::Task<void> SleepUntil(std::chrono::steady_clock::time_point point) {
         co_await nbio::runtime::Daemon::timer_channel().Sleep(point);
     }

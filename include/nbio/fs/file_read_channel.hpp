@@ -1,7 +1,6 @@
 #pragma once
 
 #include <deque>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
@@ -17,7 +16,7 @@ class FileStream;
 class ReadAwaiter;
 
 class FileReadChannel final : public nbio::core::Channel<FileReadChannel> {
-   public:
+public:
     using Payload = detail::IOVectorPayload<FileReadChannel>;
 
     FileReadChannel(FileStream& file, nbio::core::Multiplexer& multiplexer, nbio::async::Scheduler& scheduler);
@@ -33,7 +32,7 @@ class FileReadChannel final : public nbio::core::Channel<FileReadChannel> {
     FileStream& file_stream() noexcept { return file_stream_; }
     const FileStream& file_stream() const noexcept { return file_stream_; }
 
-   private:
+private:
     friend class ReadAwaiter;
 
     // Queues the read and arms the channel: this is the suspension point, and

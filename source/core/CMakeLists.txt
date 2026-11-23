@@ -1,10 +1,16 @@
 cmake_minimum_required(VERSION 3.20)
 
-target_sources(nbio PRIVATE epoll_multiplexer.cpp)
+if(WIN32)
+    target_sources(nbio PRIVATE iocp_multiplexer.cpp)
+    target_compile_definitions(nbio PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(nbio PUBLIC ws2_32)
+else()
+    target_sources(nbio PRIVATE epoll_multiplexer.cpp)
+endif()
 
 if(NBIO_ENABLE_IO_URING)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(URING_PC REQUIRED IMPORTED_TARGET liburing)
-    target_sources(nbio PRIVATE uring_multiplexer.cpp)
+    target_sources(nbio PRIVATE io_uring_multiplexer.cpp)
     target_link_libraries(nbio PUBLIC PkgConfig::URING_PC)
 endif()

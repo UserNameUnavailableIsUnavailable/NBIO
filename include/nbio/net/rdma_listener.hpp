@@ -28,7 +28,7 @@ class RdmaListenChannel;
 class RdmaListener {
     friend class RdmaListenChannel;
 
-   public:
+public:
     using Handle = int;
 
     explicit RdmaListener(RdmaResource& resource);
@@ -53,7 +53,7 @@ class RdmaListener {
     // learns which one it chose.
     std::uint16_t BoundPort() const noexcept;
 
-   private:
+private:
     // One non-blocking attempt: kNotReady when nobody has asked yet.
     RdmaResult<RdmaCommunication> TryAccept() noexcept;
 

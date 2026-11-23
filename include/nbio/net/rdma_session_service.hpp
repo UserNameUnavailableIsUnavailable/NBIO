@@ -16,7 +16,7 @@ namespace nbio::net {
  * connector, then drive one connection end to end without touching the primitives.
  */
 class RdmaSessionService {
-   public:
+public:
     explicit RdmaSessionService(RdmaCommunication communication);
 
     RdmaSessionService(const RdmaSessionService&) = delete;
@@ -40,7 +40,7 @@ class RdmaSessionService {
     RdmaCommunication& communication() noexcept { return communication_; }
     const RdmaCommunication& communication() const noexcept { return communication_; }
 
-   private:
+private:
     RdmaCommunication communication_;
     RdmaSendChannel send_channel_;
     RdmaReceiveChannel receive_channel_;

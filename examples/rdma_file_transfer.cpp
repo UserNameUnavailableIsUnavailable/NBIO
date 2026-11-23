@@ -1,11 +1,11 @@
+#include <CLI/CLI.hpp>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <CLI/CLI.hpp>
 #include <nbio/async.hpp>
-#include <nbio/net.hpp>
 #include <nbio/fs.hpp>
+#include <nbio/net.hpp>
 
 using namespace nbio;
 namespace stdfs = std::filesystem;
@@ -104,10 +104,8 @@ async::Task<void> receiver(std::string file_path) {
 int main(int argc, char* argv[]) {
     CLI::App app{"RDMA File Sender"};
     std::string file_path;
-    std::string mode; // "sender" | "receiver"
-    app.add_option("-m,--mode", mode, "Mode of operation")
-    ->check(CLI::IsMember({"sender", "receiver"}))
-    ->required();
+    std::string mode;  // "sender" | "receiver"
+    app.add_option("-m,--mode", mode, "Mode of operation")->check(CLI::IsMember({"sender", "receiver"}))->required();
     app.add_option("-f,--file", file_path, "File to send")->required();
     CLI11_PARSE(app, argc, argv);
     if (mode == "sender") {

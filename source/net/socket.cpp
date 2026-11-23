@@ -188,7 +188,13 @@ utility::expected<std::size_t, std::error_code> Socket::Receive(std::span<char> 
 
 utility::expected<std::size_t, std::error_code> Socket::Send(std::span<const char> buffer) noexcept {
     while (true) {
-        const auto n = ::send(handle_, buffer.data(), buffer.size(), MSG_NOSIGNAL);
+        const auto n = ::send(handle_, buffer.data(), buffer.size(),
+#if defined(_WIN32)
+                              0
+#else
+                              MSG_NOSIGNAL
+#endif
+        );
         if (n >= 0) {
             return static_cast<std::size_t>(n);
         }
@@ -256,7 +262,7 @@ std::error_code Socket::SetNativeOption(int level, int option, const T& value) n
 #if defined(_WIN32)
     if (::setsockopt(handle_, level, option, reinterpret_cast<const char*>(&value), static_cast<int>(sizeof(T))) < 0)
 #elif defined(__linux__)
-    if (::setsockopt(handle_, level, option, &value, static_cast< ::socklen_t>(sizeof(T))) < 0)
+    if (::setsockopt(handle_, level, option, &value, static_cast<::socklen_t>(sizeof(T))) < 0)
 #endif
     {
         return last_error();
@@ -271,7 +277,7 @@ utility::expected<T, std::error_code> Socket::GetNativeOption(int level, int opt
     int length = static_cast<int>(sizeof(T));
     if (::getsockopt(handle_, level, option, reinterpret_cast<char*>(&value), &length) < 0)
 #elif defined(__linux__)
-    ::socklen_t length = static_cast< ::socklen_t>(sizeof(T));
+    ::socklen_t length = static_cast<::socklen_t>(sizeof(T));
     if (::getsockopt(handle_, level, option, &value, &length) < 0)
 #endif
     {
@@ -394,7 +400,7 @@ void Socket::Shutdown(ShutdownHow how) noexcept {
             what = SD_RECEIVE;
             break;
         case ShutdownHow::kWrite:
-            what = SD_Send;
+            what = SD_SEND;
             break;
         case ShutdownHow::kBoth:
             what = SD_BOTH;
@@ -412,6 +418,7 @@ void Socket::Close() noexcept {
     ::close(handle_);
 #elif defined(_WIN32)
     ::closesocket(handle_);
+    completion_port_ = 0;
 #endif
     handle_ = kInvalidHandle;
     ReleaseWinsock();

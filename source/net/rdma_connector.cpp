@@ -87,7 +87,7 @@ RdmaResult<void> RdmaConnector::SubmitResolve(const net::Address& target) noexce
     }
     // rdma_resolve_addr returns immediately; the resolution finishes by emitting
     // RDMA_CM_EVENT_ADDR_RESOLVED on the event channel, which is awaited afterwards.
-    
+
     if (::rdma_resolve_addr(communication_id_, nullptr, const_cast<::sockaddr*>(target.storage<::sockaddr>()),
                             address_resolve_timeout_ms_) != 0) [[unlikely]] {
         return utility::unexpected(Failing("Failed to resolve the rdma address"));

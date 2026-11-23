@@ -9,7 +9,7 @@
 namespace nbio::fs {
 
 class FileView {
-   public:
+public:
 #if defined(__unix__)
     using Handle = int;
 #elif defined(_WIN32)
@@ -29,7 +29,7 @@ class FileView {
 
     void* data() noexcept { return data_; }
 
-   private:
+private:
 #if defined(_WIN32)
     using MappingHandle = void*;
 #endif

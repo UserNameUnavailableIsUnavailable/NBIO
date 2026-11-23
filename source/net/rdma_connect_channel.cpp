@@ -7,7 +7,7 @@
 namespace nbio::net {
 namespace detail {
 class RdmaConnectAwaiter {
-   public:
+public:
     RdmaConnectAwaiter(RdmaConnectChannel& channel, const net::Address& target) : channel_(channel), target_(target) {}
 
     bool await_ready() const noexcept { return false; }
@@ -48,7 +48,7 @@ class RdmaConnectAwaiter {
         return nbio::utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
     }
 
-   private:
+private:
     RdmaConnectChannel& channel_;
     net::Address target_;
 };
@@ -57,8 +57,8 @@ class RdmaConnectAwaiter {
 RdmaConnectChannel::RdmaConnectChannel(nbio::net::RdmaConnector& connector, nbio::core::Multiplexer& multiplexer,
                                        nbio::async::Scheduler& scheduler)
     : nbio::core::Channel<RdmaConnectChannel>(nbio::core::ChannelType::kRdmaConnect,
-                                              static_cast<std::uintptr_t>(connector.event_channel_handle()), multiplexer,
-                                              scheduler),
+                                              static_cast<std::uintptr_t>(connector.event_channel_handle()),
+                                              multiplexer, scheduler),
       connector_(connector) {}
 
 RdmaConnectChannel::~RdmaConnectChannel() noexcept { multiplexer_.DeleteChannel(this); }

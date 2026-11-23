@@ -47,7 +47,7 @@ struct RdmaSlot {
 // capacity; the head advances only over slots that are dropped and no longer in
 // flight, so a late completion can never land on a re-posted slot.
 class RdmaRing {
-   public:
+public:
     void Reset(std::size_t capacity);
     bool has_room() const noexcept { return occupied() < slots_.size(); }
     std::size_t occupied() const noexcept { return static_cast<std::size_t>(next_seq_ - head_); }
@@ -91,7 +91,7 @@ class RdmaCommunication {
     friend class RdmaSendChannel;
     friend class RdmaReceiveChannel;
 
-   public:
+public:
     using Handle = int;
 
     RdmaCommunication(const RdmaCommunication&) = delete;
@@ -158,7 +158,7 @@ class RdmaCommunication {
     /** @brief The queue depths and SGE limits this connection was built with. */
     const RdmaChannelOptions& options() const noexcept { return options_; }
 
-   private:
+private:
     RdmaCommunication(::rdma_cm_id* communication_id, ::rdma_event_channel* event_channel, RdmaResource& resource,
                       RdmaChannelOptions options, bool passive);
 

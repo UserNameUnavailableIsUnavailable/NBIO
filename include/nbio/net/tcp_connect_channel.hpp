@@ -1,7 +1,6 @@
 #pragma once
 
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
@@ -9,6 +8,7 @@
 #include <nbio/net/address.hpp>
 #include <nbio/net/payload.hpp>
 #include <nbio/net/tcp_connector.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <nbio/utility/expected.hpp>
 #include <system_error>
 #include <utility>
@@ -16,7 +16,7 @@
 namespace nbio::net {
 class ConnectAwaiter;
 class TcpConnectChannel final : public nbio::core::Channel<TcpConnectChannel> {
-   public:
+public:
     using Payload = detail::PollPayload<TcpConnectChannel>;
 
     TcpConnectChannel(nbio::net::TcpConnector connector, nbio::core::Multiplexer& multiplexer,
@@ -33,7 +33,7 @@ class TcpConnectChannel final : public nbio::core::Channel<TcpConnectChannel> {
     Payload& Submit();
     void Complete();
 
-   private:
+private:
     friend class ConnectAwaiter;
 
     void Park(async::Coroutine waiter) noexcept { waiter_ = std::move(waiter); }

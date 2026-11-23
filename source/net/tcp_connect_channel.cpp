@@ -1,7 +1,7 @@
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/net/payload.hpp>
 #include <nbio/net/tcp_connect_channel.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <optional>
 #include <stdexcept>
 #include <system_error>
@@ -31,7 +31,7 @@ TcpConnectChannel::TcpConnectChannel(nbio::net::TcpConnector connector, nbio::co
 TcpConnectChannel::~TcpConnectChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
 class ConnectAwaiter {
-   public:
+public:
     ConnectAwaiter(TcpConnectChannel& channel, const nbio::net::Address* source, const nbio::net::Address& target)
         : channel_(channel), source_(source), target_(target) {}
 
@@ -83,7 +83,7 @@ class ConnectAwaiter {
         return std::move(channel_.connector_);
     }
 
-   private:
+private:
     TcpConnectChannel& channel_;
     // Pointed at rather than held: the source address belongs to the caller, and the
     // awaiter outlives the call that named it.

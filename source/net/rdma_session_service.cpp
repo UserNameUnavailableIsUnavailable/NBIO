@@ -24,9 +24,7 @@ nbio::async::Task<RdmaResult<RdmaSeq>> RdmaSessionService::WaitSend(RdmaSeq seq)
     co_return co_await send_channel_.WaitSend(seq);
 }
 
-RdmaResult<RdmaSendResult> RdmaSessionService::PeekSend(RdmaSeq seq) noexcept {
-    return send_channel_.PeekSend(seq);
-}
+RdmaResult<RdmaSendResult> RdmaSessionService::PeekSend(RdmaSeq seq) noexcept { return send_channel_.PeekSend(seq); }
 
 void RdmaSessionService::CompleteSend(RdmaSeq seq) noexcept { send_channel_.CompleteSend(seq); }
 

@@ -7,7 +7,7 @@
 namespace nbio::net {
 namespace detail {
 class RdmaAcceptAwaiter {
-   public:
+public:
     explicit RdmaAcceptAwaiter(RdmaListenChannel& channel) : channel_(channel) {}
 
     bool await_ready() const noexcept { return false; }
@@ -44,7 +44,7 @@ class RdmaAcceptAwaiter {
         return nbio::utility::unexpected(make_error_code(RdmaErrc::kOperationFailed));
     }
 
-   private:
+private:
     RdmaListenChannel& channel_;
 };
 }  // namespace detail

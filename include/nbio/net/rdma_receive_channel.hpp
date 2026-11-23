@@ -1,5 +1,5 @@
 #pragma once
-#if defined(NBIO_ENABLE_RDMA) && defined(__linux__)
+#if defined(__linux__) && defined(NBIO_ENABLE_RDMA)
 
 #include <nbio/async/coroutine.hpp>
 #include <nbio/async/scheduler.hpp>
@@ -18,7 +18,7 @@ namespace nbio::net {
  * sequence to be reaped parks the coroutine on the receive completion channel.
  */
 class RdmaReceiveChannel final : public nbio::core::Channel<RdmaReceiveChannel> {
-   public:
+public:
     using Handle = int;
     using Payload = detail::PollPayload<RdmaReceiveChannel>;
 
@@ -45,7 +45,7 @@ class RdmaReceiveChannel final : public nbio::core::Channel<RdmaReceiveChannel> 
     const PendingReceive& job() const noexcept { return job_; }
     nbio::net::RdmaCommunication& communication() noexcept { return communication_; }
 
-   private:
+private:
     nbio::net::RdmaCommunication& communication_;
     PendingReceive job_{};
     nbio::async::Coroutine waiter_{};
@@ -53,4 +53,4 @@ class RdmaReceiveChannel final : public nbio::core::Channel<RdmaReceiveChannel> 
 };
 }  // namespace nbio::net
 
-#endif  // defined(NBIO_ENABLE_RDMA) && defined(__linux__)
+#endif  // defined(__linux__) && defined(NBIO_ENABLE_RDMA)

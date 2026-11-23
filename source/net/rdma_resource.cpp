@@ -75,7 +75,8 @@ RdmaResource::RdmaResource(std::string_view device_name, std::span<const char> s
     // page aligned cannot be described at all, because the first partial page would
     // have to be pinned without knowing where it begins.
     const std::size_t page = page_size();
-    for (const auto memory : {std::span<const char>(send_memory_region), std::span<const char>(receive_memory_region)}) {
+    for (const auto memory :
+         {std::span<const char>(send_memory_region), std::span<const char>(receive_memory_region)}) {
         if (reinterpret_cast<std::uintptr_t>(memory.data()) % page != 0) [[unlikely]] {
             throw std::invalid_argument(
                 std::format("a memory region has to start on a page boundary: {} is not a multiple of {}",
@@ -86,8 +87,8 @@ RdmaResource::RdmaResource(std::string_view device_name, std::span<const char> s
     // Local read is implicit for the owner, so a send source needs no flag at all;
     // a receive target needs local write, which is the one thing the device may
     // not do without being told.
-    send_memory_region_.reset(
-        ::ibv_reg_mr(protection_domain_.get(), const_cast<char*>(send_memory_region.data()), send_memory_region.size(), 0));
+    send_memory_region_.reset(::ibv_reg_mr(protection_domain_.get(), const_cast<char*>(send_memory_region.data()),
+                                           send_memory_region.size(), 0));
     if (!send_memory_region_) [[unlikely]] {
         throw RegistrationFailed(send_memory_region, 0);
     }
@@ -104,9 +105,7 @@ RdmaResource::RdmaResource(std::string_view device_name, std::span<const char> s
 // the context first -- gets right.
 RdmaResource::~RdmaResource() noexcept = default;
 
-bool RdmaResource::Serves(const ::rdma_cm_id& id) const noexcept {
-    return context_ != nullptr && id.verbs == context_;
-}
+bool RdmaResource::Serves(const ::rdma_cm_id& id) const noexcept { return context_ != nullptr && id.verbs == context_; }
 
 bool RdmaResource::Admits(const ::ibv_mr& region) const noexcept {
     return protection_domain_ != nullptr && region.pd == protection_domain_.get();

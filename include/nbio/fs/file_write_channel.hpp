@@ -2,7 +2,6 @@
 
 #include <deque>
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/async/scheduler.hpp>
 #include <nbio/async/task.hpp>
 #include <nbio/core/channel.hpp>
@@ -18,7 +17,7 @@ class FileStream;
 class WriteAwaiter;
 
 class FileWriteChannel final : public nbio::core::Channel<FileWriteChannel> {
-   public:
+public:
     using Payload = detail::IOVectorPayload<FileWriteChannel>;
 
     FileWriteChannel(FileStream& file, nbio::core::Multiplexer& multiplexer, nbio::async::Scheduler& scheduler);
@@ -34,7 +33,7 @@ class FileWriteChannel final : public nbio::core::Channel<FileWriteChannel> {
     FileStream& file_stream() noexcept { return file_stream_; }
     const FileStream& file_stream() const noexcept { return file_stream_; }
 
-   private:
+private:
     friend class WriteAwaiter;
 
     // Queues the write and arms the channel: this is the suspension point, and

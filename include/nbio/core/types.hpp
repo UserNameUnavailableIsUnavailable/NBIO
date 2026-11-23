@@ -2,14 +2,9 @@
 
 namespace nbio::core {
 enum class MultiplexerType {
-#if defined(__linux__)
     kEpoll,
-#if defined(NBIO_ENABLE_IO_URING)
-    kURing
-#endif
-#elif defined(WIN32)
+    kIOURing,
     kIOCP
-#endif
 };
 
 // Every channel is simplex: it is dedicated to exactly one event. A connection

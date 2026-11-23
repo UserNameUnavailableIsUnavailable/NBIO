@@ -18,7 +18,7 @@ namespace nbio::net {
  *        the multiplexer when the listener's fd is readable.
  */
 class RdmaListenChannel final : public nbio::core::Channel<RdmaListenChannel> {
-   public:
+public:
     using Handle = int;
     using Payload = detail::PollPayload<RdmaListenChannel>;
 
@@ -45,7 +45,7 @@ class RdmaListenChannel final : public nbio::core::Channel<RdmaListenChannel> {
     const PendingAccept& job() const noexcept { return job_; }
     nbio::net::RdmaListener& listener() noexcept { return listener_; }
 
-   private:
+private:
     nbio::net::RdmaListener& listener_;
     PendingAccept job_{};
     nbio::async::Coroutine waiter_{};

@@ -17,7 +17,7 @@ class Daemon {
         std::unique_ptr<core::Multiplexer> multiplexer;
     };
 
-   public:
+public:
     explicit Daemon(Init init);
     Daemon(const Daemon&) = delete;
     Daemon& operator=(const Daemon&) = delete;
@@ -39,7 +39,7 @@ class Daemon {
     static nbio::time::TimerChannel& timer_channel();
     static nbio::signal::SystemSignalChannel& signal_channel();
 
-   private:
+private:
     static thread_local std::unique_ptr<Daemon> daemon_;
 
     static std::function<void(bool)> make_idle_hook(core::Multiplexer& multiplexer);
@@ -47,7 +47,7 @@ class Daemon {
     std::unique_ptr<nbio::core::Multiplexer> multiplexer_;
     std::unique_ptr<nbio::async::Scheduler> scheduler_;
 
-	std::unique_ptr<nbio::time::Timer> timer_;
+    std::unique_ptr<nbio::time::Timer> timer_;
     std::unique_ptr<nbio::time::TimerChannel> timer_channel_;
     std::unique_ptr<nbio::notification::Notifier> notifier_;
     std::unique_ptr<nbio::notification::NotifierChannel> notifier_channel_;

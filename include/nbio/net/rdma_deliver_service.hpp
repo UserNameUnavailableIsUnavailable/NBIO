@@ -30,7 +30,7 @@ namespace nbio::net {
  *   handshake, so neither end has to guess what the other can take.
  */
 class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliverService> {
-   public:
+public:
     /**
      * @brief What one end can take: the bytes in one packet, and how many packets
      *        it has posted.
@@ -84,7 +84,7 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     std::uint64_t taken() const noexcept { return taken_; }
     const Layout& layout() const noexcept { return mine_; }
 
-   private:
+private:
     struct Incoming {
         std::span<char> packet{};
         std::span<char> chunk{};
@@ -102,8 +102,7 @@ class RdmaDeliverService final : public std::enable_shared_from_this<RdmaDeliver
     nbio::async::Task<RdmaResult<RdmaReceiveResult>> PullPacket();
     nbio::async::Task<RdmaResult<Incoming>> ReadPacket();
     nbio::async::Task<RdmaResult<void>> Absorb(Incoming packet);
-    nbio::async::Task<RdmaResult<void>> SendPacket(std::span<const char> payload,
-                                                   nbio::net::RdmaPacketType type);
+    nbio::async::Task<RdmaResult<void>> SendPacket(std::span<const char> payload, nbio::net::RdmaPacketType type);
     nbio::async::Task<RdmaResult<void>> WaitForRoom(std::uint64_t packets);
 
     bool RoomFor(std::uint64_t packets) const noexcept;

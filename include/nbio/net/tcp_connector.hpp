@@ -7,7 +7,7 @@
 
 namespace nbio::net {
 class TcpConnector final : public Socket {
-   public:
+public:
     explicit TcpConnector(Address::Family family = Address::Family::kIPv4);
 
     TcpConnector(const TcpConnector&) = delete;
@@ -27,7 +27,7 @@ class TcpConnector final : public Socket {
     [[deprecated("Use ToggleReuseAddress instead")]]
     utility::expected<void, std::error_code> ReuseAddress(bool toggle = true) noexcept;
 
-   private:
+private:
     friend class TcpListener;
     explicit TcpConnector(Socket socket) noexcept;
 };

@@ -2,9 +2,8 @@
 
 namespace nbio::time {
 TimerChannel::TimerChannel(nbio::time::Timer& timer, nbio::core::Multiplexer& multiplexer,
-                                       nbio::async::Scheduler& scheduler)
-    : nbio::core::Channel<TimerChannel>(nbio::core::ChannelType::kTimer, timer.native_handle(), multiplexer,
-                                              scheduler),
+                           nbio::async::Scheduler& scheduler)
+    : nbio::core::Channel<TimerChannel>(nbio::core::ChannelType::kTimer, timer.native_handle(), multiplexer, scheduler),
       timer_(timer),
       queue_() {
     timer_.NonBlocking(true);
@@ -30,7 +29,7 @@ void TimerChannel::Park(async::Coroutine coroutine, std::chrono::steady_clock::t
 
 TimerChannel::Payload& TimerChannel::Submit() { return payload_; }
 
-bool TimerChannel::remove(async::Coroutine coroutine_view) {
+bool TimerChannel::Remove(async::Coroutine coroutine_view) {
     bool removed_immediate = false;
     std::queue<async::Coroutine> filtered_immediate;
     while (!immediate_queue_.empty()) {
@@ -72,8 +71,8 @@ void TimerChannel::Complete() {
     // Take the expirations out first: that is what makes the timerfd stop
     // reporting, and the entries below are the ones it is reporting for.
     auto result = timer_.wait();
-    if (!result) {
-        throw std::runtime_error(std::format("failed to wait timer: {}", result.error().message()));
+    if (!result && result.error() != std::errc::operation_would_block) {
+        throw std::system_error(result.error(), "failed to wait timer");
     }
 
     while (!queue_.is_empty()) [[likely]] {

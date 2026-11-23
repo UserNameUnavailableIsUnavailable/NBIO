@@ -7,7 +7,7 @@
 namespace nbio::net {
 namespace detail {
 class RdmaReceiveWaitAwaiter {
-   public:
+public:
     RdmaReceiveWaitAwaiter(RdmaReceiveChannel& channel, RdmaSeq seq) : channel_(channel), seq_(seq) {}
 
     bool await_ready() const noexcept { return false; }
@@ -42,7 +42,7 @@ class RdmaReceiveWaitAwaiter {
         return job.mark;
     }
 
-   private:
+private:
     RdmaReceiveChannel& channel_;
     RdmaSeq seq_;
 };
@@ -50,9 +50,9 @@ class RdmaReceiveWaitAwaiter {
 
 RdmaReceiveChannel::RdmaReceiveChannel(nbio::net::RdmaCommunication& communication,
                                        nbio::core::Multiplexer& multiplexer, nbio::async::Scheduler& scheduler)
-    : nbio::core::Channel<RdmaReceiveChannel>(nbio::core::ChannelType::kRdmaReceive,
-                                              static_cast<std::uintptr_t>(communication.receive_completion_channel_handle()),
-                                              multiplexer, scheduler),
+    : nbio::core::Channel<RdmaReceiveChannel>(
+          nbio::core::ChannelType::kRdmaReceive,
+          static_cast<std::uintptr_t>(communication.receive_completion_channel_handle()), multiplexer, scheduler),
       communication_(communication) {}
 
 RdmaReceiveChannel::~RdmaReceiveChannel() noexcept { multiplexer_.DeleteChannel(this); }

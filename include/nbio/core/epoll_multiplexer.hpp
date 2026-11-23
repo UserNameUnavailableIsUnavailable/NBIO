@@ -13,16 +13,16 @@
 
 namespace nbio::core {
 class EpollMultiplexer final : public nbio::core::Multiplexer {
-   public:
+public:
     using Handle = int;
     EpollMultiplexer();
     virtual ~EpollMultiplexer() noexcept;
-    virtual void Run() override;
-    virtual void RunFor(std::chrono::milliseconds timeout) override;
+    virtual void Wait() override;
+    virtual void WaitFor(std::chrono::milliseconds timeout) override;
     virtual void AddChannel(nbio::core::ChannelBase* channel) override;
     virtual void DeleteChannel(nbio::core::ChannelBase* channel) noexcept override;
 
-   private:
+private:
     void RunImpl(int timeout);
     int handle_{-1};                                                            // epoll file descriptor
     std::unordered_multimap<int, nbio::core::ChannelBase*> pollable_channels_;  // all pollable channels

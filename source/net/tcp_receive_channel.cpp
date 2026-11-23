@@ -1,5 +1,4 @@
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/net/tcp_connector.hpp>
 #include <nbio/net/tcp_receive_channel.hpp>
 #include <span>
@@ -8,7 +7,7 @@
 
 namespace nbio::net {
 class ReceiveAwaiter {
-   public:
+public:
     ReceiveAwaiter(TcpReceiveChannel& channel, std::span<char> buffer) : channel_(channel), buffer_(buffer) {}
 
     ReceiveAwaiter(const ReceiveAwaiter&) = delete;
@@ -32,7 +31,7 @@ class ReceiveAwaiter {
 
     net::Transmission await_resume() noexcept { return transmission_; }
 
-   private:
+private:
     TcpReceiveChannel& channel_;
     std::span<char> buffer_;
     net::Transmission transmission_{};
@@ -67,7 +66,7 @@ TcpReceiveChannel::Payload& TcpReceiveChannel::Submit() { return payload_; }
 
 void TcpReceiveChannel::Complete() {
     auto& payload = payload_;
-    while (auto completion = payload.next_completion()) {
+    while (auto completion = payload.NextCompletion()) {
         auto waiter = std::move(waiters_.front());
         waiters_.pop_front();
         scheduler_.Submit(std::move(waiter));

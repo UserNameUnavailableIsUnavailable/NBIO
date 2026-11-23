@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <atomic>
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/notification/condition_variable.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <utility>
 
 namespace nbio::notification {

@@ -1,8 +1,8 @@
 #include <filesystem>
-#include <nbio/runtime/daemon.hpp>
 #include <nbio/fs/file_read_channel.hpp>
 #include <nbio/fs/file_stream.hpp>
 #include <nbio/fs/file_write_channel.hpp>
+#include <nbio/runtime/daemon.hpp>
 
 namespace nbio::fs {
 FileStream::FileStream(const std::string& path, nbio::fs::FileMode mode, std::filesystem::perms permissions,

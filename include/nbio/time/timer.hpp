@@ -1,12 +1,9 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <nbio/utility/expected.hpp>
 #include <system_error>
-
-#if defined(_WIN32)
-#include <Windows.h>
-#endif
 
 #if defined(__linux__)
 #include <sys/timerfd.h>
@@ -14,11 +11,11 @@
 
 namespace nbio::time {
 class Timer {
-   public:
+public:
 #if defined(__unix__)
     using Handle = int;
 #elif defined(_WIN32)
-    using Handle = void*;
+    using Handle = std::uintptr_t;
 #endif
 
     using Clock = std::chrono::steady_clock;
@@ -39,8 +36,13 @@ class Timer {
     void cancel();
     utility::expected<void, std::error_code> wait();
 
-   private:
+private:
     Handle handle_;
+#if defined(_WIN32)
+    void FireAfter(std::chrono::nanoseconds duration);
+    bool non_blocking_{false};
+    bool active_{false};
+#endif
 };
 
 template <typename Rep, typename Period>
@@ -60,13 +62,7 @@ void Timer::fire_after(std::chrono::duration<Rep, Period> duration) {
         throw std::runtime_error("failed to set timer");
     }
 #elif defined(_WIN32)
-    auto count = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count() % 100;
-    LARGE_INTEGER due{.QuadPart = -count};
-    auto callback = [](void* arg) {
-        Timer* self = static_cast<Timer*>(arg);
-        (void)self;
-    };
-    SetWaitableTimer(handle_, &due, 0, callback, this, FALSE);
+    FireAfter(std::chrono::ceil<std::chrono::nanoseconds>(duration));
 #endif
 }
 }  // namespace nbio::time

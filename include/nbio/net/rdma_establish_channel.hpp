@@ -16,7 +16,7 @@ namespace nbio::net {
  *        communication's CM fd until RDMA_CM_EVENT_ESTABLISHED arrives.
  */
 class RdmaEstablishChannel final : public nbio::core::Channel<RdmaEstablishChannel> {
-   public:
+public:
     using Handle = int;
     using Payload = detail::PollPayload<RdmaEstablishChannel>;
 
@@ -40,7 +40,7 @@ class RdmaEstablishChannel final : public nbio::core::Channel<RdmaEstablishChann
     // One non-blocking step: kNotReady until established.
     RdmaResult<void> Advance() noexcept;
 
-   private:
+private:
     nbio::net::RdmaCommunication& communication_;
     PendingEstablish job_{};
     nbio::async::Coroutine waiter_{};

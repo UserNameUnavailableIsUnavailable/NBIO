@@ -14,12 +14,12 @@
 #include <memory>
 #include <nbio/async.hpp>
 #include <nbio/async/coroutine.hpp>
-#include <nbio/runtime/daemon.hpp>
-#include <nbio/core/uring_multiplexer.hpp>
+#include <nbio/core/io_uring_multiplexer.hpp>
 #include <nbio/net/address.hpp>
+#include <nbio/net/socket.hpp>
 #include <nbio/net/tcp_listen_service.hpp>
 #include <nbio/net/tcp_session_service.hpp>
-#include <nbio/net/socket.hpp>
+#include <nbio/runtime/daemon.hpp>
 #include <span>
 #include <string>
 #include <vector>
@@ -35,9 +35,7 @@ constexpr std::size_t kChunkBytes = 512;
 // listener is closed when the test ends.
 constexpr std::uint16_t kTestPort = 34567;
 
-nbio::net::Address TestAddress() {
-    return nbio::net::Address::FromIPv4("127.0.0.1", kTestPort).value();
-}
+nbio::net::Address TestAddress() { return nbio::net::Address::FromIPv4("127.0.0.1", kTestPort).value(); }
 
 // The bytes one writer's chunk turns into, so the test and the writer agree on what
 // was sent without either of them counting by hand.
@@ -152,7 +150,7 @@ TEST(SocketChannelTesting, OneReadinessEventServesEveryWaitingAccept) {
 // The completion backend takes connections one at a time instead of draining, and
 // the queue is what keeps every waiter in line behind them.
 TEST(SocketChannelTesting, EveryWaitingAcceptIsAnsweredOnURing) {
-    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::URingMultiplexer>());
+    nbio::runtime::Daemon::Initialize(std::make_unique<nbio::core::IOURingMultiplexer>());
 
     const auto address = TestAddress();
     nbio::net::TcpListenService listener{address};
