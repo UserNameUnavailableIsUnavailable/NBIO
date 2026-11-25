@@ -67,6 +67,42 @@ cmake --build build
 The vcpkg manifest supplies `tl-expected`; the `NBIO` target links its exported
 `tl::expected` target so consumers inherit the required include path.
 
+## Asynchronous file I/O
+
+`FileStreamService::Read(buffer, offset)` and `Write(buffer, offset)` use explicit
+byte offsets and return awaitable `expected<size_t, error_code>` results.
+`FileStream` exposes the same operations. A stream does not maintain file
+pointers and cannot be opened with `FileMode::kAppend`.
+
+Reads and writes share a FIFO queue. Consecutive operations in the same direction
+with adjacent ranges are vectorized; nonadjacent or overlapping ranges are
+submitted separately. Reads can return fewer bytes at EOF. Writes are retried
+after short transfers. An I/O failure fails that operation and all later queued
+and future reads and writes with the same error. A failed write may have modified
+part of the file, so recovery requires inspecting the file and opening a new
+stream.
+
+`GetActualSize()` queries the current filesystem length, while `GetExpectedSize()`
+reports the projected length after accepted writes succeed. Both return
+`expected<uint64_t, error_code>`; the latter returns the latched I/O error
+after a failure. The projected size includes a write once its lazy task starts
+and enters the queue, not when the task is created. For append-style use,
+query the expected size and immediately await the write without suspending in
+between. The projection assumes no external writes or truncation. Zero-length
+writes do not extend the file.
+
+Use the stream on its owning scheduler thread and keep it and externally owned
+buffers alive until queued I/O completes, including after cancellation.
+Offsets and ranges exceeding `INT64_MAX` are rejected with `invalid_argument`.
+Neither size query guarantees durability.
+
+```cpp
+auto offset = file.GetExpectedSize();
+if (!offset) throw std::system_error(offset.error(), "querying file size");
+auto written = co_await file.Write(bytes, *offset);
+if (!written) throw std::system_error(written.error(), "writing file");
+```
+
 ## Using NBIO from vcpkg
 
 The port in `ports/NBIO` builds from this local checkout and installs the

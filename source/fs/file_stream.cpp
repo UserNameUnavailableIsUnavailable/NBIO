@@ -3,26 +3,43 @@
 #include <nbio/fs/file_stream.hpp>
 #include <nbio/fs/file_write_channel.hpp>
 #include <nbio/runtime/daemon.hpp>
+#include <stdexcept>
 
 namespace nbio::fs {
+namespace {
+FileMode ExplicitMode(FileMode mode) {
+    if ((mode & FileMode::kAppend) == FileMode::kAppend) {
+        throw std::invalid_argument("FileStream requires explicit offsets and cannot use append mode");
+    }
+    return mode;
+}
+}  // namespace
+
 FileStream::FileStream(const std::string& path, nbio::fs::FileMode mode, std::filesystem::perms permissions,
                        nbio::core::Multiplexer& multiplexer, nbio::async::Scheduler& scheduler)
-    : file_(path, mode, permissions),
+    : file_(path, ExplicitMode(mode), permissions),
       read_channel_(std::make_unique<FileReadChannel>(*this, multiplexer, scheduler)),
       write_channel_(std::make_unique<FileWriteChannel>(*this, multiplexer, scheduler)) {
-    std::error_code error;
-    const auto size = std::filesystem::file_size(path, error);
-    if (!error && (mode & nbio::fs::FileMode::kWrite) == nbio::fs::FileMode::kWrite) {
-        write_offset_ = static_cast<std::uint64_t>(size);
-    }
+    const auto size = file_.Size();
+    if (!size) throw std::system_error(size.error(), "querying file size");
+    expected_size_ = *size;
 }
 
-nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileStream::read(std::span<char> buffer) {
-    co_return co_await read_channel().read(buffer);
+nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileStream::Read(std::span<char> buffer,
+                                                                                 std::uint64_t offset) {
+    return read_channel().Read(buffer, offset);
 }
 
-nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileStream::write(std::span<const char> buffer) {
-    co_return co_await write_channel().write(buffer);
+nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileStream::Write(std::span<const char> buffer,
+                                                                                  std::uint64_t offset) {
+    return write_channel().Write(buffer, offset);
+}
+
+utility::expected<std::uint64_t, std::error_code> FileStream::GetActualSize() const { return file_.Size(); }
+
+utility::expected<std::uint64_t, std::error_code> FileStream::GetExpectedSize() const {
+    if (error_) return utility::unexpected<std::error_code>(error_);
+    return expected_size_;
 }
 
 FileReadChannel& FileStream::read_channel() noexcept { return *read_channel_; }

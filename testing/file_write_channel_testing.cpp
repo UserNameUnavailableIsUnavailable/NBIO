@@ -1,8 +1,6 @@
 // One FileStream is one file descriptor with one write channel, and a channel
-// drives one job at a time. Everything that shares a file -- the append-only file
-// every client session writes to -- therefore relies on the channel to put the
-// writes behind each other rather than let the second one write over the first
-// one's job and drop its coroutine.
+// drives one job at a time. Writers reserve distinct offsets from the projected
+// size before submitting their next chunks.
 //
 // These tests write from many coroutines at once and read the file back as a
 // sequence of whole chunks: nothing may be lost, nothing may be written over, and
@@ -55,7 +53,11 @@ nbio::async::Task<void> write_chunks(nbio::fs::FileStream& file, const std::vect
                                      std::size_t writer) {
     for (std::size_t index = 0; index < kChunksPerWriter; ++index) {
         const std::vector<char>& chunk = chunks[writer * kChunksPerWriter + index];
-        (void)co_await file.write(std::span<const char>{chunk.data(), chunk.size()});
+        const auto offset = file.GetExpectedSize();
+        if (!offset) throw std::system_error(offset.error(), "querying expected size");
+        const auto written = co_await file.Write(std::span<const char>{chunk.data(), chunk.size()}, *offset);
+        if (!written) throw std::system_error(written.error(), "writing chunk");
+        if (*written != chunk.size()) throw std::runtime_error("short chunk write");
     }
 }
 

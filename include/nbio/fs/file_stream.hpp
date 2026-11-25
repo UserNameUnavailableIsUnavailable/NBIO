@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <nbio/async/scheduler.hpp>
@@ -41,20 +42,36 @@ public:
     // to another open before that channel unregisters itself.
     ~FileStream() noexcept = default;
 
-    nbio::async::Task<utility::expected<std::size_t, std::error_code>> read(std::span<char> buffer);
-    nbio::async::Task<utility::expected<std::size_t, std::error_code>> write(std::span<const char> buffer);
+    nbio::async::Task<utility::expected<std::size_t, std::error_code>> Read(std::span<char> buffer,
+                                                                           std::uint64_t offset);
+    nbio::async::Task<utility::expected<std::size_t, std::error_code>> Write(std::span<const char> buffer,
+                                                                            std::uint64_t offset);
 
     std::uintptr_t native_handle() const noexcept { return file_.native_handle(); }
 
-    std::uint64_t read_offset() const noexcept { return read_offset_; }
-    std::uint64_t write_offset() const noexcept { return write_offset_; }
-    void AdvanceReadOffset(std::size_t bytes) noexcept { read_offset_ += static_cast<std::uint64_t>(bytes); }
-    void AdvanceWriteOffset(std::size_t bytes) noexcept { write_offset_ += static_cast<std::uint64_t>(bytes); }
+    utility::expected<std::uint64_t, std::error_code> GetActualSize() const;
+    utility::expected<std::uint64_t, std::error_code> GetExpectedSize() const;
 
     FileReadChannel& read_channel() noexcept;
     FileWriteChannel& write_channel() noexcept;
 
 private:
+    friend class FileReadChannel;
+    friend class FileWriteChannel;
+    enum class Direction { kRead, kWrite };
+    struct Group {
+        Direction direction;
+        std::size_t size;
+    };
+
+    void Enqueue(Direction direction);
+    bool CanSubmit(Direction direction) const noexcept;
+    std::size_t SubmissionLimit(Direction direction) const noexcept;
+    void Complete(Direction direction);
+
+    void ObserveWrite(std::uint64_t end) noexcept {
+        if (end > expected_size_) expected_size_ = end;
+    }
     friend class core::IOCPMultiplexer;
 #if defined(_WIN32)
     std::uintptr_t completion_port_{};
@@ -62,8 +79,9 @@ private:
     nbio::fs::File file_;
     std::unique_ptr<FileReadChannel> read_channel_;
     std::unique_ptr<FileWriteChannel> write_channel_;
-    std::uint64_t read_offset_{0};
-    std::uint64_t write_offset_{0};
+    std::uint64_t expected_size_{0};
+    std::deque<Group> queue_;
+    std::error_code error_;
 };
 
 }  // namespace nbio::fs

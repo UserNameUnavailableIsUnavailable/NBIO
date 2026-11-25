@@ -163,7 +163,7 @@ static constexpr std::uint32_t native_flags_for(nbio::core::ChannelType type) {
 }
 
 // run once
-void EpollMultiplexer::RunImpl(int timeout_ms) {
+void EpollMultiplexer::WaitImpl(int timeout_ms) {
     std::array<::epoll_event, 4096> events;
     bool retry = false;
     do {
@@ -213,7 +213,7 @@ void EpollMultiplexer::RunImpl(int timeout_ms) {
     } while (retry);
 }
 
-void EpollMultiplexer::Wait() { RunImpl(-1); }
+void EpollMultiplexer::Wait() { WaitImpl(-1); }
 
 void EpollMultiplexer::WaitFor(std::chrono::milliseconds timeout) {
     auto now = std::chrono::steady_clock::now();
@@ -221,7 +221,7 @@ void EpollMultiplexer::WaitFor(std::chrono::milliseconds timeout) {
     do {
         auto remaining = (due - now).count();
         auto ms = remaining > INT_MAX ? INT_MAX : remaining;
-        RunImpl(static_cast<int>(ms));
+        WaitImpl(static_cast<int>(ms));
         now = std::chrono::steady_clock::now();
     } while (now < due);
 }
@@ -485,8 +485,6 @@ static void do_accept_connection(TcpListenChannel* channel) {
 }
 
 static void do_read_file(FileReadChannel* channel) {
-    // A file is always ready, so the batch the channel hands over here is the
-    // operation: the reads cover consecutive stretches of it.
     auto& payload = channel->Submit();
     if (payload.size() == 0) {
         return;  // nothing to read for
@@ -502,38 +500,13 @@ static void do_read_file(FileReadChannel* channel) {
     if (result < 0) {
         const int error = errno;
         const std::error_code failure{error, std::system_category()};
-        while (auto* submission = payload.NextSubmission()) {
-            submission->status = fs::OperationStatus::kError;
-            submission->error_code = failure;
-            payload.Complete();
-        }
+        payload.FailSubmitted(failure);
         return;
     }
-
-    payload.advance_offset(static_cast<std::size_t>(result));
-    std::size_t remaining = static_cast<std::size_t>(result);
-    while (auto* submission = payload.NextSubmission()) {
-        if (remaining == 0) {
-            // A short read on a regular file is its end: the reads behind it would
-            // read at or past where it stopped.
-            submission->status = fs::OperationStatus::kDone;
-            submission->bytes = 0;
-            submission->error_code = {};
-            payload.Complete();
-            continue;
-        }
-        const std::size_t taken = std::min(remaining, submission->buffer.size());
-        submission->status = fs::OperationStatus::kDone;
-        submission->bytes = taken;
-        submission->error_code = {};
-        payload.Complete();
-        remaining -= taken;
-    }
+    payload.CompleteRead(static_cast<std::size_t>(result));
 }
 
 static void do_write_file(FileWriteChannel* channel) {
-    // As for reading: the batch is the operation, and the writes follow one another
-    // in the file.
     auto& payload = channel->Submit();
     if (payload.size() == 0) {
         return;  // nothing to write
@@ -549,37 +522,10 @@ static void do_write_file(FileWriteChannel* channel) {
     if (result < 0) {
         const int error = errno;
         const std::error_code failure{error, std::system_category()};
-        while (auto* submission = payload.NextSubmission()) {
-            submission->status = fs::OperationStatus::kError;
-            submission->error_code = failure;
-            payload.Complete();
-        }
+        payload.FailSubmitted(failure);
         return;
     }
-
-    payload.advance_offset(static_cast<std::size_t>(result));
-    std::size_t remaining = static_cast<std::size_t>(result);
-    while (remaining > 0) {
-        auto* submission = payload.NextSubmission();
-        if (submission == nullptr) {
-            break;
-        }
-        const std::size_t size = submission->buffer.size();
-        const std::size_t taken = std::min(remaining, size);
-        submission->bytes += taken;
-        remaining -= taken;
-
-        if (taken == size) {
-            submission->status = fs::OperationStatus::kDone;
-            submission->error_code = {};
-            payload.Complete();
-        } else {
-            // The operation stopped inside this write: what is left of it keeps its
-            // place in the file.
-            submission->buffer = submission->buffer.subspan(taken);
-            break;
-        }
-    }
+    payload.CompleteWrite(static_cast<std::size_t>(result));
 }
 
 }  // namespace nbio::core

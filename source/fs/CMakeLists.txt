@@ -6,6 +6,7 @@ target_sources(
     file.cpp
     file_view.cpp
     file_read_channel.cpp
+    file_queue.cpp
     file_stream.cpp
     file_stream_service.cpp
     file_write_channel.cpp

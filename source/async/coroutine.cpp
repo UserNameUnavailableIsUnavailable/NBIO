@@ -6,15 +6,25 @@ namespace nbio::async {
 void CoroutineControlBlock::Cancel() noexcept {
     auto expected{CoroutineLifecycle::kAlive};
     if (state.compare_exchange_strong(expected, CoroutineLifecycle::kCancelled, std::memory_order_acq_rel)) {
-        scheduler->Reclaim(*this);
+        if (pending_io_ == 0) scheduler->Reclaim(*this);
     }
 }
 
 void CoroutineControlBlock::Finish() noexcept {
     auto expected{CoroutineLifecycle::kAlive};
     if (state.compare_exchange_strong(expected, CoroutineLifecycle::kFinished, std::memory_order_acq_rel)) {
-        scheduler->Reclaim(*this);
+        if (pending_io_ == 0) scheduler->Reclaim(*this);
     }
+}
+
+void CoroutineControlBlock::PinIO() noexcept {
+    assert(!is_dead());
+    ++pending_io_;
+}
+
+void CoroutineControlBlock::UnpinIO() noexcept {
+    assert(pending_io_ != 0);
+    if (--pending_io_ == 0 && is_dead()) scheduler->Reclaim(*this);
 }
 
 CoroutineControlBlock::~CoroutineControlBlock() noexcept {

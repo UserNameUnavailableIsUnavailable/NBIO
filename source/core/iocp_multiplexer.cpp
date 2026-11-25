@@ -80,7 +80,15 @@ void Advance(C* channel, DWORD bytes, DWORD error, bool empty) {
     auto& payload = channel->Submit();
     if constexpr (file) {
         if (!write && error == ERROR_HANDLE_EOF) error = ERROR_SUCCESS;
-        if (error == ERROR_SUCCESS) payload.advance_offset(bytes);
+        if (error != ERROR_SUCCESS) {
+            payload.FailSubmitted(std::error_code(error, std::system_category()));
+        } else if constexpr (write) {
+            payload.CompleteWrite(bytes);
+        } else {
+            payload.CompleteRead(bytes);
+        }
+        channel->Complete();
+        return;
     }
     std::size_t remaining = bytes;
     while (auto* submission = payload.NextSubmission()) {
@@ -135,7 +143,14 @@ struct IOCPMultiplexer::Impl {
                     [&](auto* typed) {
                         auto& payload = typed->Submit();
                         if (payload.size() == 0) return;
-                        const auto& scatters = payload.header();
+                        const auto& scatters = [&]() -> const auto& {
+                            using C = std::remove_pointer_t<decltype(typed)>;
+                            if constexpr (std::is_same_v<C, fs::FileReadChannel> ||
+                                          std::is_same_v<C, fs::FileWriteChannel>)
+                                return payload.header(1);
+                            else
+                                return payload.header();
+                        }();
                         op->empty = scatters.front().count == 0;
                         const bool file =
                             channel->type() == ChannelType::kRead || channel->type() == ChannelType::kWrite;

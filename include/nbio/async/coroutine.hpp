@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cassert>
 #include <coroutine>
+#include <cstddef>
 #include <list>
 #include <memory>
 
@@ -55,8 +56,13 @@ struct CoroutineControlBlock : std::enable_shared_from_this<CoroutineControlBloc
 
     void Cancel() noexcept;
     void Finish() noexcept;
+    void PinIO() noexcept;
+    void UnpinIO() noexcept;
 
     ~CoroutineControlBlock() noexcept;
+
+private:
+    std::size_t pending_io_{0};
 };
 
 class CoroutineJoinHandle {

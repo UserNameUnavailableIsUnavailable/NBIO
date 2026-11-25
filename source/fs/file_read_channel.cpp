@@ -8,7 +8,8 @@
 namespace nbio::fs {
 class ReadAwaiter {
 public:
-    ReadAwaiter(FileReadChannel& channel, std::span<char> buffer) : channel_(channel), buffer_(buffer) {}
+    ReadAwaiter(FileReadChannel& channel, std::span<char> buffer, std::uint64_t offset)
+        : channel_(channel), buffer_(buffer), offset_(offset) {}
 
     bool await_ready() const noexcept { return false; }
 
@@ -16,10 +17,16 @@ public:
     bool await_suspend(std::coroutine_handle<PromiseType> handle) {
         transmission_.status = OperationStatus::kPending;
         transmission_.bytes = 0;
+        transmission_.offset = offset_;
         transmission_.error_code = {};
         transmission_.buffer = buffer_;
-        channel_.Prepare(async::Coroutine::FromHandle(handle), &transmission_);
         channel_.Arm();
+        try {
+            channel_.Prepare(async::Coroutine::FromHandle(handle), &transmission_);
+        } catch (...) {
+            if (channel_.is_idle()) channel_.Disarm();
+            throw;
+        }
         return true;
     }
 
@@ -28,6 +35,7 @@ public:
 private:
     FileReadChannel& channel_;
     std::span<char> buffer_;
+    std::uint64_t offset_;
     fs::Transmission transmission_{};
 };
 
@@ -43,37 +51,45 @@ FileReadChannel::FileReadChannel(FileStream& file, nbio::core::Multiplexer& mult
 FileReadChannel::~FileReadChannel() noexcept { multiplexer_.DeleteChannel(this); }
 
 void FileReadChannel::Prepare(async::Coroutine waiter, fs::Transmission* transmission) {
-    waiters_.push_back(std::move(waiter));
-    auto& payload = payload_;
-    payload.Submit(transmission);
+    auto owner = waiter.Lock();
+    waiters_.push_back(Pending{std::move(waiter), owner});
+    bool submitted = false;
+    try {
+        payload_.Submit(transmission);
+        submitted = true;
+        file_stream_.Enqueue(FileStream::Direction::kRead);
+    } catch (...) {
+        if (submitted) payload_.UndoSubmit(transmission);
+        waiters_.pop_back();
+        throw;
+    }
+    owner->PinIO();
 }
 
 FileReadChannel::Payload& FileReadChannel::Submit() {
-    auto& payload = payload_;
-    payload.set_offset(file_stream_.read_offset());
+    constexpr auto direction = FileStream::Direction::kRead;
+    if (!file_stream_.CanSubmit(direction)) return inactive_payload_;
+    payload_.SetSubmissionLimit(file_stream_.SubmissionLimit(direction));
     return payload_;
 }
 
-void FileReadChannel::Complete() {
-    auto& payload = payload_;
-    // The backend advanced the payload offset by what it read; move the file's
-    // cursor along with it.
-    file_stream_.AdvanceReadOffset(payload.offset() - file_stream_.read_offset());
-    while (auto completion = payload.NextCompletion()) {
-        auto waiter = std::move(waiters_.front());
-        waiters_.pop_front();
-        scheduler_.Submit(std::move(waiter));
-        payload.Conclude();
-    }
-    if (payload.size() != 0) {
-        Arm();
-    } else {
-        Disarm();
-    }
+void FileReadChannel::CompleteOne() {
+    auto pending = std::move(waiters_.front());
+    waiters_.pop_front();
+    payload_.Conclude();
+    pending.owner->UnpinIO();
+    scheduler_.Submit(std::move(pending.waiter));
 }
 
-nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileReadChannel::read(std::span<char> buffer) {
-    auto result = co_await ReadAwaiter{*this, buffer};
+void FileReadChannel::Complete() { file_stream_.Complete(FileStream::Direction::kRead); }
+
+nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileReadChannel::Read(std::span<char> buffer,
+                                                                                       std::uint64_t offset) {
+    if (file_stream_.error_) co_return utility::unexpected<std::error_code>(file_stream_.error_);
+    if (!detail::ValidFileRange(offset, buffer.size())) {
+        co_return utility::unexpected<std::error_code>(std::make_error_code(std::errc::invalid_argument));
+    }
+    auto result = co_await ReadAwaiter{*this, buffer, offset};
     if (result.status == OperationStatus::kError) {
         co_return utility::unexpected<std::error_code>(std::move(result.error_code));
     }

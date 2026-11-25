@@ -7,6 +7,7 @@
 #include <Windows.h>
 #else
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #endif
@@ -59,6 +60,25 @@ utility::expected<std::size_t, std::error_code> File::Write(std::span<const char
     }
 
     return total;
+#endif
+}
+
+utility::expected<std::uint64_t, std::error_code> File::Size() const {
+#if defined(_WIN32)
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(reinterpret_cast<HANDLE>(handle_), &size)) {
+        return utility::unexpected<std::error_code>(std::error_code(GetLastError(), std::system_category()));
+    }
+    return static_cast<std::uint64_t>(size.QuadPart);
+#else
+    struct stat status{};
+    if (::fstat(static_cast<int>(handle_), &status) != 0) {
+        return utility::unexpected<std::error_code>(std::error_code(errno, std::system_category()));
+    }
+    if (status.st_size < 0) {
+        return utility::unexpected<std::error_code>(std::make_error_code(std::errc::value_too_large));
+    }
+    return static_cast<std::uint64_t>(status.st_size);
 #endif
 }
 

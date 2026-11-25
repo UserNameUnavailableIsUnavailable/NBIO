@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <nbio/async/task.hpp>
 #include <nbio/fs/file_stream.hpp>
@@ -35,9 +36,12 @@ public:
 
     ~FileStreamService() noexcept = default;
 
-    // One read or write at the file's current position, answered with what it moved.
-    nbio::async::Task<utility::expected<std::size_t, std::error_code>> Read(std::span<char> buffer);
-    nbio::async::Task<utility::expected<std::size_t, std::error_code>> Write(std::span<const char> buffer);
+    nbio::async::Task<utility::expected<std::size_t, std::error_code>> Read(std::span<char> buffer,
+                                                                           std::uint64_t offset);
+    nbio::async::Task<utility::expected<std::size_t, std::error_code>> Write(std::span<const char> buffer,
+                                                                            std::uint64_t offset);
+    utility::expected<std::uint64_t, std::error_code> GetActualSize() const { return stream_.GetActualSize(); }
+    utility::expected<std::uint64_t, std::error_code> GetExpectedSize() const { return stream_.GetExpectedSize(); }
 
     nbio::fs::FileStream& stream() noexcept { return stream_; }
 

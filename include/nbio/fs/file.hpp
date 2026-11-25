@@ -48,6 +48,7 @@ public:
 
     utility::expected<std::size_t, std::error_code> Read(std::span<char> buffer);
     utility::expected<std::size_t, std::error_code> Write(std::span<const char> buffer);
+    utility::expected<std::uint64_t, std::error_code> Size() const;
 
     std::uintptr_t native_handle() const noexcept { return handle_; }
 

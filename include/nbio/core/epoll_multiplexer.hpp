@@ -23,7 +23,7 @@ public:
     virtual void DeleteChannel(nbio::core::ChannelBase* channel) noexcept override;
 
 private:
-    void RunImpl(int timeout);
+    void WaitImpl(int timeout);
     int handle_{-1};                                                            // epoll file descriptor
     std::unordered_multimap<int, nbio::core::ChannelBase*> pollable_channels_;  // all pollable channels
     std::unordered_multimap<int, nbio::core::ChannelBase*>

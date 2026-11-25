@@ -4,6 +4,7 @@ add_executable(
 	nbio_testing
 	condition_testing.cpp
 	file_write_channel_testing.cpp
+	file_offset_testing.cpp
 	socket_channel_testing.cpp
 	socket_testing.cpp
 	address_testing.cpp
@@ -33,6 +34,7 @@ if(WIN32)
         ../source/time/timer.cpp
         ../source/time/timer_channel.cpp
         ../source/fs/file_read_channel.cpp
+        ../source/fs/file_queue.cpp
         ../source/fs/file_write_channel.cpp
         ../source/net/address.cpp
         ../source/net/socket.cpp

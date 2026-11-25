@@ -27,7 +27,7 @@ public:
     void DeleteChannel(nbio::core::ChannelBase* channel) noexcept override;
 
 private:
-    void RunImpl(int timeout_ms);
+    void WaitImpl(int timeout_ms);
 
     // Turn the channel's next operation into a submission queue entry. Answers
     // false when the channel has nothing to hand over, an operation is already in

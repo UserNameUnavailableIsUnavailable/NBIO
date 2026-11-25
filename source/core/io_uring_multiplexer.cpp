@@ -101,7 +101,7 @@ static decltype(auto) visit_channel(ChannelBase* channel, Visitor&& visitor) {
     return std::visit(std::forward<Visitor>(visitor), as_variant(channel));
 }
 
-void IOURingMultiplexer::Wait() { RunImpl(-1); }
+void IOURingMultiplexer::Wait() { WaitImpl(-1); }
 
 void IOURingMultiplexer::WaitFor(std::chrono::milliseconds timeout) {
     auto now = std::chrono::steady_clock::now();
@@ -109,12 +109,12 @@ void IOURingMultiplexer::WaitFor(std::chrono::milliseconds timeout) {
     do {
         const auto remaining = (due - now).count();
         const auto ms = remaining > INT_MAX ? INT_MAX : remaining;
-        RunImpl(static_cast<int>(ms));
+        WaitImpl(static_cast<int>(ms));
         now = std::chrono::steady_clock::now();
     } while (now < due);
 }
 
-void IOURingMultiplexer::RunImpl(int timeout_ms) {
+void IOURingMultiplexer::WaitImpl(int timeout_ms) {
     // 1. Give the kernel every operation that is waiting to start.
     Submit();
     // 2. wait for at least one completion (unless asked not to block).
@@ -239,60 +239,17 @@ static void AdvanceChannel(T* channel, int result) {
         auto& payload = channel->Submit();
         if (result < 0) {
             const std::error_code failure{-result, std::system_category()};
-            while (auto* submission = payload.NextSubmission()) {
-                submission->status = fs::OperationStatus::kError;
-                submission->error_code = failure;
-                payload.Complete();
-            }
+            payload.FailSubmitted(failure);
         } else {
-            payload.advance_offset(static_cast<std::size_t>(result));
-            std::size_t remaining = static_cast<std::size_t>(result);
-            while (auto* submission = payload.NextSubmission()) {
-                if (remaining == 0) {
-                    submission->status = fs::OperationStatus::kDone;
-                    submission->bytes = 0;
-                    submission->error_code = {};
-                    payload.Complete();
-                    continue;
-                }
-                const std::size_t taken = std::min(remaining, submission->buffer.size());
-                submission->status = fs::OperationStatus::kDone;
-                submission->bytes = taken;
-                submission->error_code = {};
-                payload.Complete();
-                remaining -= taken;
-            }
+            payload.CompleteRead(static_cast<std::size_t>(result));
         }
     } else if constexpr (std::is_same_v<ChannelType, FileWriteChannel>) {
         auto& payload = channel->Submit();
         if (result < 0) {
             const std::error_code failure{-result, std::system_category()};
-            while (auto* submission = payload.NextSubmission()) {
-                submission->status = fs::OperationStatus::kError;
-                submission->error_code = failure;
-                payload.Complete();
-            }
+            payload.FailSubmitted(failure);
         } else {
-            payload.advance_offset(static_cast<std::size_t>(result));
-            std::size_t remaining = static_cast<std::size_t>(result);
-            while (remaining > 0) {
-                auto* submission = payload.NextSubmission();
-                if (submission == nullptr) {
-                    break;
-                }
-                const std::size_t size = submission->buffer.size();
-                const std::size_t taken = std::min(remaining, size);
-                submission->bytes += taken;
-                remaining -= taken;
-                if (taken == size) {
-                    submission->status = fs::OperationStatus::kDone;
-                    submission->error_code = {};
-                    payload.Complete();
-                } else {
-                    submission->buffer = submission->buffer.subspan(taken);
-                    break;
-                }
-            }
+            payload.CompleteWrite(static_cast<std::size_t>(result));
         }
     } else if constexpr (std::is_same_v<ChannelType, TcpListenChannel>) {
         auto& payload = channel->Submit();
@@ -321,7 +278,7 @@ static void CompleteChannel(T* channel) {
 }
 
 template <typename T, typename PollPayloadType>
-static io_uring_sqe* prepare_poll_sqe(io_uring* ring, T* channel, PollPayloadType& payload, int mask = POLLIN) {
+static io_uring_sqe* PreparePollSQE(io_uring* ring, T* channel, PollPayloadType& payload, int mask = POLLIN) {
     if (!payload.WantsPoll()) {
         return nullptr;
     }
@@ -335,7 +292,7 @@ static io_uring_sqe* prepare_poll_sqe(io_uring* ring, T* channel, PollPayloadTyp
 }
 
 template <typename T>
-static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
+static io_uring_sqe* PrepareChannel(io_uring* ring, T* channel) {
     using ChannelType = std::remove_pointer_t<T>;
 
     if constexpr (std::is_same_v<ChannelType, TcpReceiveChannel>) {
@@ -407,32 +364,32 @@ static io_uring_sqe* prepare_channel(io_uring* ring, T* channel) {
         return sqe;
     } else if constexpr (std::is_same_v<ChannelType, TimerChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload);
+        return PreparePollSQE(ring, channel, payload);
     } else if constexpr (std::is_same_v<ChannelType, NotifierChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload);
+        return PreparePollSQE(ring, channel, payload);
     } else if constexpr (std::is_same_v<ChannelType, SystemSignalChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload);
+        return PreparePollSQE(ring, channel, payload);
 #if defined(NBIO_ENABLE_RDMA)
     } else if constexpr (std::is_same_v<ChannelType, RdmaListenChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload);
+        return PreparePollSQE(ring, channel, payload);
     } else if constexpr (std::is_same_v<ChannelType, RdmaConnectChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload);
+        return PreparePollSQE(ring, channel, payload);
     } else if constexpr (std::is_same_v<ChannelType, TcpConnectChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload, POLLOUT);
+        return PreparePollSQE(ring, channel, payload, POLLOUT);
     } else if constexpr (std::is_same_v<ChannelType, RdmaSendChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload);
+        return PreparePollSQE(ring, channel, payload);
     } else if constexpr (std::is_same_v<ChannelType, RdmaReceiveChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload);
+        return PreparePollSQE(ring, channel, payload);
     } else if constexpr (std::is_same_v<ChannelType, RdmaEstablishChannel>) {
         auto& payload = channel->Submit();
-        return prepare_poll_sqe(ring, channel, payload);
+        return PreparePollSQE(ring, channel, payload);
 #endif
     } else {
         return nullptr;
@@ -469,7 +426,7 @@ bool IOURingMultiplexer::Prepare(nbio::core::ChannelBase* channel) {
         return false;
     }
 
-    io_uring_sqe* sqe = visit_channel(channel, [&](auto* typed) { return prepare_channel(&ring_, typed); });
+    io_uring_sqe* sqe = visit_channel(channel, [&](auto* typed) { return PrepareChannel(&ring_, typed); });
 
     if (sqe == nullptr) {
         return false;

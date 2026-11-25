@@ -11,12 +11,13 @@ FileStreamService::FileStreamService(const std::filesystem::path& path, nbio::fs
       stream_(path.string(), mode, permissions, nbio::runtime::Daemon::multiplexer(),
               nbio::runtime::Daemon::scheduler()) {}
 
-nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileStreamService::Read(std::span<char> buffer) {
-    return stream_.read(buffer);
+nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileStreamService::Read(std::span<char> buffer,
+                                                                                        std::uint64_t offset) {
+    return stream_.Read(buffer, offset);
 }
 
 nbio::async::Task<utility::expected<std::size_t, std::error_code>> FileStreamService::Write(
-    std::span<const char> buffer) {
-    return stream_.write(buffer);
+    std::span<const char> buffer, std::uint64_t offset) {
+    return stream_.Write(buffer, offset);
 }
 }  // namespace nbio::fs
